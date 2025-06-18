@@ -37,6 +37,18 @@
     .btn-small { font-size: .75rem; padding: .25rem .5rem; border-radius: .25rem; }
     /* ACE Editor marker styling for task highlights */
     .ace_marker-layer .task-highlight, .ace_task-highlight { position: absolute; background-color: rgba(255,235,59,0.4); }
+    .btn-delete {
+      font-size: 0.75rem;
+      padding: 0.25rem;
+      border-radius: 0.25rem;
+      background: transparent;
+      color: #e53e3e;       /* rouge discret */
+      transition: color .2s;
+    }
+    .btn-delete:hover {
+      color: #c53030;
+    }
+  
   </style>
 </head>
 <body class="h-screen flex">
@@ -88,7 +100,13 @@
         const ul = document.getElementById('pinned-list'); ul.innerHTML = '';
         pinned.forEach(r => {
           const li = document.createElement('li'); li.className = 'flex justify-between items-center';
-          li.innerHTML = `<span class="font-medium text-gray-700">${r.name}</span><button data-name="${r.name}" class="bg-green-600 text-white btn-small">Open</button>`;
+            li.innerHTML = `
+              <span class="font-medium text-gray-700">${r.name}</span>
+              <div class="flex items-center space-x-1">
+                <button data-name="${r.name}" class="bg-green-600 text-white btn-small">Open</button>
+                <button data-del-pin="${r.name}" class="btn-delete">&times;</button>
+              </div>
+            `;
           ul.appendChild(li);
         });
       }
@@ -100,7 +118,13 @@
         const ul = document.getElementById('rfc-list'); ul.innerHTML = '';
         items.forEach(r => {
           const li = document.createElement('li'); li.className = 'flex justify-between items-center';
-          li.innerHTML = `<span class="text-gray-800">${r.name} - ${r.title}</span><button data-name="${r.name}" class="bg-blue-600 text-white btn-small">Download</button>`;
+            li.innerHTML = `
+              <span class="text-gray-800">${r.name} - ${r.title}</span>
+              <div class="flex items-center space-x-1">
+                <button data-name="${r.name}" class="bg-blue-600 text-white btn-small">Download</button>
+                <button data-del-rfc="${r.name}" class="btn-delete">&times;</button>
+              </div>
+            `;
           ul.appendChild(li);
         });
       }
@@ -133,17 +157,35 @@
 
       /* ---------- Task Management Functions ---------- */
       // Render active tasks with subtasks and bind events
-      function renderActiveTasks() {
-        const c = document.getElementById('active-tasks'); c.innerHTML = '';
-        activeTasks.forEach((t, i) => {
-          const subs = t.subtasks || [];
-          const div = document.createElement('div'); div.className = 'task-card'; div.dataset.rfc = t.rfc;
-          div.innerHTML = `<h4 class="font-medium"><input type="checkbox" data-ti="${i}" class="mr-2"/> ${t.text}</h4>${subs.map((st, j) =>
-            `<div class="subtask-item flex items-center"><input type="checkbox" data-sti="${i}-${j}" class="mr-2"/>${st.text}</div>`
-          ).join('')}<button data-si="${i}" class="text-blue-600 btn-small mt-2">+ Subtask</button>`;
-          c.appendChild(div);
-        }); bindTaskEvents();
-      }
+        function renderActiveTasks() {
+          const c = document.getElementById('active-tasks');
+          c.innerHTML = '';
+          activeTasks.forEach((t, i) => {
+            const subs = t.subtasks || [];
+            const div = document.createElement('div');
+            div.className = 'task-card';
+            div.dataset.rfc = t.rfc;
+            div.innerHTML = `
+              <div class="flex justify-between items-center">
+                <h4 class="font-medium flex-1">
+                  <input type="checkbox" data-ti="${i}" class="mr-2"/> ${t.text}
+                </h4>
+                <button data-del-task="${i}" class="btn-delete">&times;</button>
+              </div>
+              ${subs.map((st, j) =>
+                `<div class="subtask-item flex items-center justify-between">
+                   <div class="flex items-center">
+                     <input type="checkbox" data-sti="${i}-${j}" class="mr-2"/>${st.text}
+                   </div>
+                   <button data-del-subtask="${i}-${j}" class="btn-delete">&times;</button>
+                 </div>`
+              ).join('')}
+              <button data-si="${i}" class="text-blue-600 btn-small mt-2">+ Subtask</button>
+            `;
+            c.appendChild(div);
+          });
+          bindTaskEvents();
+        }
       // Render archived tasks and bind archive-related events
       function renderArchivedTasks() {
         const container = document.getElementById('archived-tasks');
@@ -195,6 +237,48 @@
           highlightRfc(card.dataset.rfc);
         }));
       }
+      
+        // Remove a pinned RFC
+        document.getElementById('pinned-list').addEventListener('click', e => {
+          if (e.target.dataset.delPin) {
+            pinned = pinned.filter(r => r.name !== e.target.dataset.delPin);
+            savePinned();
+          }
+        });
+        
+        // Remove an RFC from the search results
+        document.getElementById('rfc-list').addEventListener('click', e => {
+          if (e.target.dataset.delRfc) {
+            rfcs = rfcs.filter(r => r.name !== e.target.dataset.delRfc);
+            renderList(rfcs);
+          }
+        });
+        
+        // Delete an active task or its subtask
+        document.getElementById('active-tasks').addEventListener('click', e => {
+          if (e.target.dataset.delTask !== undefined) {
+            activeTasks.splice(Number(e.target.dataset.delTask), 1);
+            saveTasks();
+          }
+          if (e.target.dataset.delSubtask) {
+            const [taskIndex, subtaskIndex] = e.target.dataset.delSubtask.split('-').map(Number);
+            activeTasks[taskIndex].subtasks.splice(subtaskIndex, 1);
+            saveTasks();
+          }
+        });
+        
+        // Delete an archived task or its subtask
+        document.getElementById('archived-tasks').addEventListener('click', e => {
+          if (e.target.dataset.delArchTask !== undefined) {
+            archivedTasks.splice(Number(e.target.dataset.delArchTask), 1);
+            saveTasks();
+          }
+          if (e.target.dataset.delArchSubtask) {
+            const [taskIndex, subtaskIndex] = e.target.dataset.delArchSubtask.split('-').map(Number);
+            archivedTasks[taskIndex].subtasks.splice(subtaskIndex, 1);
+            saveTasks();
+          }
+        });
 
       // Bind change and toggle events for archived tasks
       function bindArchiveEvents() {

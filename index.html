@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- Force secure context features like Service Workers -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://cdn.jsdelivr.net; connect-src 'self' https://datatracker.ietf.org https://api.allorigins.win; object-src 'none'; frame-ancestors 'none'; base-uri 'self';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RFC Explorer</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#2563eb">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+        integrity="sha384-…"
+        crossorigin="anonymous">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.9.6/ace.js"
+          integrity="sha384-…"
+          crossorigin="anonymous"></script>
+  <style>
+    /* …your existing styles… */
+  </style>
+</head>
+<body class="h-screen flex">
+  <!-- …your existing markup… -->
+  <script>
+    // Register Service Worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js')
+          .catch(err => console.error('SW registration failed:', err));
+      });
+    }
+  </script>
+  <script src="/app.js" defer></script>
+</body>
+</html>

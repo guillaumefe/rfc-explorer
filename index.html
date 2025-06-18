@@ -1,36 +1,288 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Document metadata and responsive design settings -->
   <meta charset="UTF-8">
-  <!-- Force secure context features like Service Workers -->
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://cdn.jsdelivr.net; connect-src 'self' https://datatracker.ietf.org https://api.allorigins.win; object-src 'none'; frame-ancestors 'none'; base-uri 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RFC Explorer</title>
-  <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#2563eb">
-  <link rel="stylesheet"
-        href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
-        integrity="sha384-…"
-        crossorigin="anonymous">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.9.6/ace.js"
-          integrity="sha384-…"
-          crossorigin="anonymous"></script>
+  <!-- Tailwind CSS for utility-first styling -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <!-- ACE Editor library for code rendering and editing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.9.6/ace.js"></script>
+
   <style>
-    /* …your existing styles… */
+    /* Base font family for consistency across browsers */
+    body { font-family: 'Inter', sans-serif; }
+    /* Dashboard container background and layout */
+    #dashboard { background-color: #f9fafb; }
+    /* List item styling for RFC entries */
+    #dashboard li { background: #fff; border-radius: .5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); padding: .75rem; position: relative; }
+    /* Highlighted and pulsing states for user interaction feedback */
+    #dashboard li.highlight { background-color: #fef3c7; }
+    #dashboard li.pulse { animation: pulse-highlight 0.5s ease-in-out; }
+    @keyframes pulse-highlight {
+      0% { background-color: #fef3c7; }
+      50% { background-color: #fdba74; }
+      100% { background-color: #fef3c7; }
+    }
+    /* Button hover transition for a smoother UI experience */
+    #dashboard button { transition: background .2s; }
+    #dashboard button:hover { background: #2563eb; }
+    /* Header styling with subtle box shadow for separation */
+    #header { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    /* Task card design for active and archived tasks */
+    .task-card { background: #fff; border-radius: .5rem; padding: .75rem; margin-bottom: .75rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer; }
+    .subtask-item { margin-left: 1.5rem; }
+    /* Small button utility class for consistent spacing */
+    .btn-small { font-size: .75rem; padding: .25rem .5rem; border-radius: .25rem; }
+    /* ACE Editor marker styling for task highlights */
+    .ace_marker-layer .task-highlight, .ace_task-highlight { position: absolute; background-color: rgba(255,235,59,0.4); }
   </style>
 </head>
 <body class="h-screen flex">
-  <!-- …your existing markup… -->
+  <!-- Sidebar: RFC dashboard with search and pinned items -->
+  <aside id="dashboard" class="w-1/4 border-r p-4 overflow-auto">
+    <h2 class="text-2xl font-semibold mb-4">My RFCs</h2>
+    <input id="search" type="text" placeholder="Search…" class="w-full mb-4 p-2 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+    <ul id="pinned-list" class="space-y-3 mb-6 max-h-48 overflow-y-auto"></ul>
+    <ul id="rfc-list" class="space-y-3"></ul>
+  </aside>
+
+  <!-- Main content: Header and ACE Editor container -->
+  <main class="flex-1 flex flex-col">
+    <header id="header" class="p-4 border-b"></header>
+    <div id="ace-editor" class="flex-1"></div>
+  </main>
+
+  <!-- Task pane: Active and archived tasks management -->
+  <section id="task-pane" class="w-1/4 border-l p-4 overflow-auto">
+    <h3 class="text-2xl font-semibold mb-4">Active Tasks</h3>
+    <div id="active-tasks"></div>
+    <h3 class="text-xl font-semibold mt-6 mb-2 flex justify-between items-center">
+      Archived <span id="archived-count" class="bg-gray-300 text-gray-800 text-sm font-medium ml-2 px-2 py-1 rounded">0</span>
+      <button id="toggle-archived" class="btn-small">Hide</button>
+    </h3>
+    <div id="archived-tasks" class="mb-4"></div>
+  </section>
+
   <script>
-    // Register Service Worker
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js')
-          .catch(err => console.error('SW registration failed:', err));
+    (function() {
+      // Base API endpoint for fetching RFC documents (limited to 50 results)
+      const baseApi = 'https://datatracker.ietf.org/api/v1/doc/document/?format=json&doc_type=rfc&limit=50';
+      // Local storage keys for pinned RFCs and task lists
+      let rfcs = [], pinned = JSON.parse(localStorage.getItem('pinned') || '[]');
+      let activeTasks = JSON.parse(localStorage.getItem('activeTasks') || '[]');
+      let archivedTasks = JSON.parse(localStorage.getItem('archivedTasks') || '[]');
+      let currentRfc = '';
+
+      // Initialize ACE Editor for read-only Markdown rendering
+      const editor = ace.edit('ace-editor');
+      const Range = ace.require('ace/range').Range;
+      editor.setTheme('ace/theme/github');
+      editor.session.setMode('ace/mode/markdown');
+      editor.setReadOnly(true);
+
+      /* ---------- RFC List Rendering and Interaction ---------- */
+      // Render pinned RFCs in the sidebar
+      function renderPinned() {
+        const ul = document.getElementById('pinned-list'); ul.innerHTML = '';
+        pinned.forEach(r => {
+          const li = document.createElement('li'); li.className = 'flex justify-between items-center';
+          li.innerHTML = `<span class="font-medium text-gray-700">${r.name}</span><button data-name="${r.name}" class="bg-green-600 text-white btn-small">Open</button>`;
+          ul.appendChild(li);
+        });
+      }
+      // Persist pinned RFCs to local storage and re-render
+      function savePinned() { localStorage.setItem('pinned', JSON.stringify(pinned)); renderPinned(); }
+
+      // Render search results in the main list
+      function renderList(items) {
+        const ul = document.getElementById('rfc-list'); ul.innerHTML = '';
+        items.forEach(r => {
+          const li = document.createElement('li'); li.className = 'flex justify-between items-center';
+          li.innerHTML = `<span class="text-gray-800">${r.name} - ${r.title}</span><button data-name="${r.name}" class="bg-blue-600 text-white btn-small">Download</button>`;
+          ul.appendChild(li);
+        });
+      }
+
+      // Search input event: fetch RFC list matching the query
+      document.getElementById('search').addEventListener('input', e => {
+        const q = e.target.value.trim();
+        if (!q) return renderList([]);
+        fetch(`${baseApi}&title__icontains=${encodeURIComponent(q)}`, { mode: 'cors' })
+          .then(r => r.ok ? r.json() : Promise.reject())
+          .then(d => { rfcs = d.objects || []; renderList(rfcs); })
+          .catch(() => renderList([]));
       });
-    }
+
+      // Delegate click events for downloading/pinning RFCs
+      document.getElementById('rfc-list').addEventListener('click', e => {
+        if (e.target.tagName === 'BUTTON') {
+          const name = e.target.dataset.name;
+          const item = rfcs.find(r => r.name === name);
+          if (item && !pinned.find(p => p.name === name)) pinned.push(item), savePinned();
+          fetchAndRender(name); highlightRfc(name);
+        }
+      });
+      document.getElementById('pinned-list').addEventListener('click', e => {
+        if (e.target.tagName === 'BUTTON') {
+          const name = e.target.dataset.name;
+          fetchAndRender(name); highlightRfc(name);
+        }
+      });
+
+      /* ---------- Task Management Functions ---------- */
+      // Render active tasks with subtasks and bind events
+      function renderActiveTasks() {
+        const c = document.getElementById('active-tasks'); c.innerHTML = '';
+        activeTasks.forEach((t, i) => {
+          const subs = t.subtasks || [];
+          const div = document.createElement('div'); div.className = 'task-card'; div.dataset.rfc = t.rfc;
+          div.innerHTML = `<h4 class="font-medium"><input type="checkbox" data-ti="${i}" class="mr-2"/> ${t.text}</h4>${subs.map((st, j) =>
+            `<div class="subtask-item flex items-center"><input type="checkbox" data-sti="${i}-${j}" class="mr-2"/>${st.text}</div>`
+          ).join('')}<button data-si="${i}" class="text-blue-600 btn-small mt-2">+ Subtask</button>`;
+          c.appendChild(div);
+        }); bindTaskEvents();
+      }
+      // Render archived tasks and bind archive-related events
+      function renderArchivedTasks() {
+        const container = document.getElementById('archived-tasks');
+        document.getElementById('archived-count').textContent = archivedTasks.length;
+        container.innerHTML = '';
+        archivedTasks.forEach((t, i) => {
+          const subs = t.subtasks || [];
+          const div = document.createElement('div');
+          div.className = 'task-card';
+          div.dataset.rfc = t.rfc;
+          div.innerHTML = `
+            <div class="flex items-center justify-between">
+              <div class="flex items-center">
+                <input type="checkbox" data-ai="${i}" class="mr-2" checked/>
+                <span>${t.text}</span>
+              </div>
+              <button class="archive-toggle text-xs px-1 py-0.5 ml-2">▶</button>
+            </div>
+            <div class="archived-subtasks hidden ml-8 mt-2">
+              ${subs.map((st, j) =>
+                `<div class="subtask-item flex items-center">
+                   <input type="checkbox" data-sti="${i}-${j}" class="mr-2"${st.done ? ' checked' : ''}/>
+                   ${st.text}
+                 </div>`
+              ).join('')}
+            </div>
+          `;
+          container.appendChild(div);
+        });
+        bindArchiveEvents();
+      }
+
+      // Bind change and click events for active tasks
+      function bindTaskEvents() {
+        document.querySelectorAll('#active-tasks input[data-ti]').forEach(cb => cb.addEventListener('change', e => {
+          // Move task to archived on checkbox toggle
+          const i = Number(e.target.dataset.ti);
+          const task = activeTasks.splice(i, 1)[0]; archivedTasks.unshift(task); saveTasks();
+        }));
+        document.querySelectorAll('#active-tasks button[data-si]').forEach(btn => btn.addEventListener('click', e => {
+          // Prompt user to add a new subtask
+          const i = Number(e.target.dataset.si);
+          const text = prompt('Add a subtask for "' + activeTasks[i].text + '"');
+          if (text) { activeTasks[i].subtasks.push({ text, done: false }); saveTasks(); }
+        }));
+        document.querySelectorAll('#active-tasks .task-card').forEach(card => card.addEventListener('click', e => {
+          // Highlight associated RFC on card click
+          if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+          highlightRfc(card.dataset.rfc);
+        }));
+      }
+
+      // Bind change and toggle events for archived tasks
+      function bindArchiveEvents() {
+        document.querySelectorAll('#archived-tasks input[data-ai]').forEach(cb => cb.addEventListener('change', e => {
+          // Restore task to active on checkbox uncheck
+          const i = Number(e.target.dataset.ai);
+          const task = archivedTasks.splice(i, 1)[0]; activeTasks.unshift(task); saveTasks();
+        }));
+        document.querySelectorAll('.archive-toggle').forEach(btn => btn.addEventListener('click', () => {
+          // Expand or collapse subtasks
+          const subtasks = btn.closest('.task-card').querySelector('.archived-subtasks');
+          const open = !subtasks.classList.toggle('hidden'); btn.textContent = open ? '▼' : '▶';
+        }));
+        document.querySelectorAll('#archived-tasks .task-card').forEach(card => card.addEventListener('click', e => {
+          // Highlight associated RFC on archived card click
+          if (e.target.tagName === 'INPUT' || e.target.classList.contains('archive-toggle')) return;
+          highlightRfc(card.dataset.rfc);
+        }));
+      }
+
+      // Persist task lists to local storage and refresh UI markers
+      function saveTasks() { localStorage.setItem('activeTasks', JSON.stringify(activeTasks)); localStorage.setItem('archivedTasks', JSON.stringify(archivedTasks)); renderActiveTasks(); renderArchivedTasks(); highlightEditorTasks(); }
+      // Add a new task based on selected text range in editor
+      function addTask(text, range) { activeTasks.unshift({ text, done: false, subtasks: [], rfc: currentRfc, range }); saveTasks(); }
+      document.getElementById('toggle-archived').addEventListener('click', () => { document.getElementById('archived-tasks').classList.toggle('hidden'); });
+
+      /* ---------- RFC Highlighting and Editor Integration ---------- */
+      let lastHighlighted = null;
+      function highlightRfc(name) {
+        const btn = document.querySelector(`#dashboard button[data-name="${name}"]`);
+        if (!btn) return;
+        const li = btn.closest('li');
+
+        if (name === lastHighlighted) {
+          // Re-trigger pulse animation on the same item
+          li.classList.remove('pulse');
+          void li.offsetWidth;
+          li.classList.add('pulse');
+        } else {
+          // Clear previous highlights and mark new selection
+          document.querySelectorAll('#dashboard li').forEach(el => el.classList.remove('highlight', 'pulse'));
+          li.classList.add('highlight');
+          lastHighlighted = name;
+        }
+
+        // Ensure highlighted item is visible in the viewport
+        li.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
+      // Highlight task-associated lines within the ACE Editor
+      function highlightEditorTasks() {
+        // Remove existing markers
+        Object.values(editor.session.getMarkers(false)).forEach(m => { if (m.clazz === 'task-highlight') editor.session.removeMarker(m.id); });
+        // Add markers for active and archived task ranges
+        activeTasks.concat(archivedTasks).forEach(t => { if (t.rfc === currentRfc && t.range) {
+            const { startRow, startCol, endRow, endCol } = t.range;
+            editor.session.addMarker(new Range(startRow, startCol, endRow, endCol), 'task-highlight', 'text', false);
+          }
+        });
+      }
+
+      // Handle text selection to enable quick task creation button
+      editor.container.addEventListener('mouseup', () => {
+        setTimeout(() => {
+          const sel = editor.getSelectedText(); let btn = document.getElementById('task-add-btn');
+          if (sel) {
+            const range = editor.getSelectionRange(); const c = editor.renderer.textToScreenCoordinates(range.start.row, range.start.column);
+            if (!btn) { btn = document.createElement('button'); btn.id = 'task-add-btn'; btn.textContent = '+'; btn.className = 'absolute bg-blue-600 text-white rounded-full w-6 h-6'; document.body.appendChild(btn); }
+            btn.style.top = (c.pageY - 8) + 'px'; btn.style.left = (c.pageX - 8) + 'px';
+            btn.onclick = () => { addTask(sel, { startRow: range.start.row, startCol: range.start.column, endRow: range.end.row, endCol: range.end.column }); btn.remove(); editor.clearSelection(); };
+          } else if (btn) btn.remove();
+        }, 10);
+      });
+
+      // Fetch RFC text via proxy, render header, and initialize tasks markers
+      function fetchAndRender(name) {
+        currentRfc = name;
+        const num = (name.match(/\d+/) || [''])[0] || '';
+        const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://www.rfc-editor.org/rfc/rfc${num}.txt`)}`;
+        fetch(proxy).then(r => r.ok ? r.text() : Promise.reject()).then(t => {
+          document.getElementById('header').innerHTML = `<h1 class="text-2xl font-bold text-gray-900 p-4">${name}</h1>`;
+          editor.session.setValue(t, -1); renderActiveTasks(); renderArchivedTasks(); highlightEditorTasks();
+        }).catch(() => { editor.session.setValue('Error loading.', -1); });
+      }
+
+      // Initial render calls on page load
+      renderPinned(); renderActiveTasks(); renderArchivedTasks();
+    })();
   </script>
-  <script src="/app.js" defer></script>
 </body>
 </html>

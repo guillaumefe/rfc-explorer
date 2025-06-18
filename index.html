@@ -357,8 +357,10 @@
       function fetchAndRender(name) {
         currentRfc = name;
         const num = (name.match(/\d+/) || [''])[0] || '';
-        const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://www.rfc-editor.org/rfc/rfc${num}.txt`)}`;
-        fetch(proxy).then(r => r.ok ? r.text() : Promise.reject()).then(t => {
+        // Construct the full endpoint for retrieving the raw RFC text by embedding the document number
+        const rfcUrl = `https://www.rfc-editor.org/rfc/rfc${num}.txt`;
+        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(rfcUrl)}`;
+        fetch(proxyUrl).then(r => r.ok ? r.text() : Promise.reject()).then(t => {
           document.getElementById('header').innerHTML = `<h1 class="text-2xl font-bold text-gray-900 p-4">${name}</h1>`;
           editor.session.setValue(t, -1); renderActiveTasks(); renderArchivedTasks(); highlightEditorTasks();
         }).catch(() => { editor.session.setValue('Error loading.', -1); });

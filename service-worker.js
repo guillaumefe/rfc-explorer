@@ -36,6 +36,10 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
+  if (url.origin === 'https://api.allorigins.win') {
+    return;
+  }
+
   // API and RFC text proxy caching (stale-while-revalidate)
   if (url.origin === 'https://datatracker.ietf.org' ||
       url.origin === 'https://api.allorigins.win') {

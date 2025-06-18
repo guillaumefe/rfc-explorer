@@ -1,9 +1,11 @@
 const CACHE_NAME = 'rfc-explorer-v1';
 const PRECACHE_URLS = [
-  '/',
-  '/index.html',
-  '/app.js',
-  '/manifest.json',
+  './',
+  './index.html',
+  './app.js',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
   'https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css',
   'https://cdnjs.cloudflare.com/ajax/libs/ace/1.9.6/ace.js'
 ];

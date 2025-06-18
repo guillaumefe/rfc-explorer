@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rfc-explorer-v1';
+const CACHE_NAME = 'rfc-explorer-v2';
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -10,17 +10,20 @@ const PRECACHE_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/ace/1.9.6/ace.js'
 ];
 
-// Install: cache essential assets
+// Listen for the service worker installation event
 self.addEventListener('install', event => {
+  // Pre-cache essential application assets for offline use
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(PRECACHE_URLS))
+      // Activate this service worker immediately, bypassing waiting phase
       .then(() => self.skipWaiting())
   );
 });
 
-// Activate: clean up old caches
+// Listen for the service worker activation event
 self.addEventListener('activate', event => {
+  // Clean up any old caches that do not match the current version
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
@@ -28,36 +31,41 @@ self.addEventListener('activate', event => {
           .filter(key => key !== CACHE_NAME)
           .map(key => caches.delete(key))
       )
-    ).then(() => self.clients.claim())
+    )
+    // Take control of all clients as soon as activation completes
+    .then(() => self.clients.claim())
   );
 });
 
-// Fetch: serve from cache, fall back to network, then cache new resources
+// Intercept all fetch requests
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  if (url.origin === 'https://api.allorigins.win') {
-    return;
-  }
-
-  // API and RFC text proxy caching (stale-while-revalidate)
-  if (url.origin === 'https://datatracker.ietf.org' ||
-      url.origin === 'https://api.allorigins.win') {
+  // Apply a stale-while-revalidate strategy for RFC content fetched via CORS proxy
+  if (
+    url.origin === 'https://datatracker.ietf.org' ||
+    url.origin === 'https://corsproxy.io'
+  ) {
     event.respondWith(
       caches.open(CACHE_NAME).then(cache =>
         cache.match(event.request).then(cached => {
-          const fetchPromise = fetch(event.request).then(response => {
-            if (response.ok) cache.put(event.request, response.clone());
+          // Fetch a fresh copy in the background
+          const networkFetch = fetch(event.request).then(response => {
+            if (response.ok) {
+              // Update the cache with the latest response
+              cache.put(event.request, response.clone());
+            }
             return response;
           });
-          return cached || fetchPromise;
+          // Serve cached version if available, otherwise wait for network
+          return cached || networkFetch;
         })
       )
     );
-    return;
+    return; // Exit early to skip generic cache-first logic
   }
 
-  // Static assets & HTML pages (cache-first)
+  // For all other requests, use cache-first strategy
   event.respondWith(
     caches.match(event.request).then(response =>
       response || fetch(event.request)

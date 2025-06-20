@@ -58,6 +58,18 @@
     <input id="search" type="text" placeholder="Search…" class="w-full mb-4 p-2 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
     <ul id="pinned-list" class="space-y-3 mb-6 max-h-48 overflow-y-auto"></ul>
     <ul id="rfc-list" class="space-y-3"></ul>
+    <!-- Mini-tutorial for Dork-style RFC searching -->
+    <div id="search-tutorial" class="text-gray-600 italic p-4 bg-white rounded shadow mt-4">
+      <p class="mb-2"><strong>Quick RFC Search Tips:</strong></p>
+      <ol class="list-decimal list-inside space-y-1">
+        <li>Type words separated by spaces to <em>AND</em> filter titles.</li>
+        <li>Prefix a term with <code>+</code> to <em>OR</em> include.</li>
+        <li>Prefix a term with <code>-</code> to exclude.</li>
+        <li>Use <code>author:Name</code> or <code>status:draft</code> for field filters.</li>
+        <li>Wrap phrases in quotes for exact matches (e.g. <code>"HTTP protocol"</code>).</li>
+        <li>Combine these dorks to narrow or broaden your results.</li>
+      </ol>
+    </div>
   </aside>
 
   <!-- Main content: Header and ACE Editor container -->
@@ -115,6 +127,7 @@
 
       // Render search results in the main list
       function renderList(items) {
+        rfcs = items;
         const ul = document.getElementById('rfc-list'); ul.innerHTML = '';
         items.forEach(r => {
           const li = document.createElement('li'); li.className = 'flex justify-between items-center';
@@ -184,18 +197,31 @@
         return { andTerms, orTerms, exclude, filters, exact };
       }
     
-      document.getElementById('search').addEventListener('input', e => {
+      // Grab references up front
+      const searchInput = document.getElementById('search');
+      const tutorialDiv = document.getElementById('search-tutorial');
+      
+      searchInput.addEventListener('input', e => {
         const q = e.target.value.trim();
-        if (!q) return renderList([]);
-    
+      
+        if (!q) {
+          // If empty → clear the RFC list and show the mini-tutorial
+          renderList([]);
+          tutorialDiv.classList.remove('hidden');
+          return;
+        }
+      
+        // Non-empty → hide the mini-tutorial and perform search
+        tutorialDiv.classList.add('hidden');
+      
         const { andTerms, orTerms, exclude, filters, exact } = parseDorks(q);
-    
+      
         // Helper: fetch results for a single term
         const fetchFor = term =>
           fetch(`${baseApi}&title__icontains=${encodeURIComponent(term)}`, { mode: 'cors' })
             .then(r => r.ok ? r.json().then(d => d.objects || []) : []);
-    
-        // If OR terms exist, fetch each and merge deduped by RFC name
+      
+        // OR logic: fetch each + dedupe, otherwise single combined AND
         const baseFetch = orTerms.length
           ? Promise.all(orTerms.map(fetchFor)).then(arrays =>
               Array.from(
@@ -204,14 +230,14 @@
                       .values()
               )
             )
-          : // otherwise, do single fetch with all AND terms in the query string
-            fetchFor(andTerms.length
+          : fetchFor(andTerms.length
               ? andTerms.join('&title__icontains=')
-              : '');
-    
+              : ''
+            );
+      
         baseFetch
           .then(results => {
-            // If no OR but multiple AND terms, ensure each result contains them all
+            // Enforce multi-AND at client side
             if (!orTerms.length && andTerms.length > 1) {
               results = results.filter(r =>
                 andTerms.every(w =>
@@ -219,14 +245,14 @@
                 )
               );
             }
-    
-            // Exact phrase filtering
+      
+            // Exact-phrase filters
             if (exact.length) {
               results = results.filter(r =>
                 exact.every(ph => r.title.toLowerCase().includes(ph.toLowerCase()))
               );
             }
-    
+      
             // Global exclusions
             if (exclude.length) {
               results = results.filter(r => {
@@ -234,8 +260,8 @@
                 return exclude.every(ex => !hay.includes(ex.toLowerCase()));
               });
             }
-    
-            // Field-specific filters
+      
+            // Field-specific include/exclude
             Object.entries(filters).forEach(([field, { include: incs, exclude: excs }]) => {
               if (incs.length) {
                 results = results.filter(r =>
@@ -248,7 +274,7 @@
                 );
               }
             });
-    
+      
             renderList(results);
           })
           .catch(() => renderList([]));

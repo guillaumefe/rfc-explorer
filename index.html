@@ -129,15 +129,117 @@
         });
       }
 
-      // Search input event: fetch RFC list matching the query
-      document.getElementById('search').addEventListener('input', e => {
-        const q = e.target.value.trim();
-        if (!q) return renderList([]);
-        fetch(`${baseApi}&title__icontains=${encodeURIComponent(q)}`, { mode: 'cors' })
-          .then(r => r.ok ? r.json() : Promise.reject())
-          .then(d => { rfcs = d.objects || []; renderList(rfcs); })
-          .catch(() => renderList([]));
-      });
+        /**
+         * Parses a dork-style search query into include/exclude terms and field filters.
+         * @param {string} q - The raw query string.
+         * @returns {{
+         *   include: string[],
+         *   exclude: string[],
+         *   filters: Record<string, { include: string[], exclude: string[] }>,
+         *   exact: string[]
+         * }}
+         */
+        function parseDorks(q) {
+          // Tokenize on quoted phrases or +/- prefixed or plain terms
+          const tokens = q.match(/(?:[+-]?"[^"]*")|[+-]?\S+/g) || [];
+          const include = [];
+          const exclude = [];
+          const filters = {};
+          const exact = []; // All phrases wrapped in quotes
+        
+          tokens.forEach(tok => {
+            let sign = null;
+            let core = tok;
+        
+            // Handle leading + or - sign
+            if (tok[0] === '+' || tok[0] === '-') {
+              sign = tok[0];
+              core = tok.slice(1);
+            }
+        
+            // 1) Exact phrase (wrapped in quotes)
+            if (/^".*"$/.test(core)) {
+              const phrase = core.slice(1, -1);
+              exact.push(phrase);
+              if (sign === '-') {
+                exclude.push(phrase);
+              } else {
+                include.push(phrase);
+              }
+            }
+            // 2) Field filter (e.g. author:Smith or -status:draft)
+            else if (/^\w+:/.test(core)) {
+              const [field, val] = core.split(':');
+              filters[field] = filters[field] || { include: [], exclude: [] };
+              if (sign === '-') {
+                filters[field].exclude.push(val);
+              } else {
+                filters[field].include.push(val);
+              }
+            }
+            // 3) Simple exclusion (e.g. -term)
+            else if (sign === '-') {
+              exclude.push(core);
+            }
+            // 4) Simple inclusion (with + or unprefixed)
+            else {
+              include.push(core);
+            }
+          });
+        
+          return { include, exclude, filters, exact };
+        }
+        
+        document.getElementById('search').addEventListener('input', e => {
+          const q = e.target.value.trim();
+          if (!q) return renderList([]);
+        
+          const { include, exclude, filters, exact } = parseDorks(q);
+        
+          // 1) Build API query parameters from all include terms
+          const apiParams = include.length
+            ? '&' + include.map(w => `title__icontains=${encodeURIComponent(w)}`).join('&')
+            : '';
+        
+          fetch(`${baseApi}${apiParams}`, { mode: 'cors' })
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(d => {
+              let results = d.objects || [];
+        
+              // 2) Post-filter for all exact phrases
+              if (exact.length) {
+                results = results.filter(r => {
+                  const title = r.title.toLowerCase();
+                  return exact.every(ph => title.includes(ph.toLowerCase()));
+                });
+              }
+        
+              // 3) Simple exclusions on title + name
+              if (exclude.length) {
+                results = results.filter(r => {
+                  const haystack = (r.title + ' ' + r.name).toLowerCase();
+                  return exclude.every(ex => !haystack.includes(ex.toLowerCase()));
+                });
+              }
+        
+              // 4) Apply field-specific include/exclude filters
+              Object.entries(filters).forEach(([field, { include: incs, exclude: excs }]) => {
+                if (incs.length) {
+                  results = results.filter(r =>
+                    incs.some(val => String(r[field]).toLowerCase() === val.toLowerCase())
+                  );
+                }
+                if (excs.length) {
+                  results = results.filter(r =>
+                    excs.every(val => String(r[field]).toLowerCase() !== val.toLowerCase())
+                  );
+                }
+              });
+        
+              renderList(results);
+            })
+            .catch(() => renderList([]));
+        });
 
       // Delegate click events for downloading/pinning RFCs
       document.getElementById('rfc-list').addEventListener('click', e => {

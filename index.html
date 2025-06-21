@@ -1,24 +1,14 @@
 <!DOCTYPE html>
-<!--
-  RFC Explorer
-  A lightweight interface for browsing, pinning, and annotating IETF RFC documents.
--->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RFC Explorer</title>
-  <!-- Tailwind CSS for utility-first styling -->
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-  <!-- Ace Editor library for in-browser code/markdown viewing -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.9.6/ace.js"></script>
-
   <style>
-    /* Set default font */
     body { font-family: 'Inter', sans-serif; }
-    /* Dashboard styling: light background */
     #dashboard { background-color: #f9fafb; }
-    /* Individual RFC list items: card-like appearance */
     #dashboard li {
       background: #fff;
       border-radius: .5rem;
@@ -26,21 +16,16 @@
       padding: .75rem;
       position: relative;
     }
-    /* Highlighted RFC entry */
     #dashboard li.highlight { background-color: #fef3c7; }
-    /* Pulse animation for re-highlighting */
     #dashboard li.pulse { animation: pulse-highlight 0.5s ease-in-out; }
     @keyframes pulse-highlight {
       0% { background-color: #fef3c7; }
       50% { background-color: #fdba74; }
       100% { background-color: #fef3c7; }
     }
-    /* Button hover effect in dashboard */
     #dashboard button { transition: background .2s; }
     #dashboard button:hover { background: #2563eb; }
-    /* Header bar styling */
     #header { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-    /* Task card appearance */
     .task-card {
       background: #fff;
       border-radius: .5rem;
@@ -49,16 +34,12 @@
       box-shadow: 0 1px 2px rgba(0,0,0,0.05);
       cursor: pointer;
     }
-    /* Nested subtask indent */
     .subtask-item { margin-left: 1.5rem; }
-    /* Small button modifier */
     .btn-small { font-size: .75rem; padding: .25rem .5rem; border-radius: .25rem; }
-    /* Highlight marker used by Ace editor for tasks */
     .ace_marker-layer .task-highlight, .ace_task-highlight {
       position: absolute;
       background-color: rgba(255,235,59,0.4);
     }
-    /* Delete button styling */
     .btn-delete {
       font-size: 0.75rem;
       padding: 0.25rem;
@@ -70,20 +51,13 @@
     .btn-delete:hover { color: #c53030; }
   </style>
 </head>
-
 <body class="h-screen flex">
-  <!-- Sidebar: RFC list, search box, pinned items -->
   <aside id="dashboard" class="w-1/4 border-r p-4 overflow-auto">
     <h2 class="text-2xl font-semibold mb-4">My RFCs</h2>
-    <!-- Search input for filtering RFC list -->
     <input id="search" type="text" placeholder="Search…"
            class="w-full mb-4 p-2 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-    <!-- Pinned RFCs container -->
     <ul id="pinned-list" class="space-y-3 mb-6 max-h-48 overflow-y-auto"></ul>
-    <!-- Dynamic RFC search results -->
     <ul id="rfc-list" class="space-y-3"></ul>
-
-    <!-- Search tutorial displayed when input is empty -->
     <div id="search-tutorial" class="text-gray-600 italic p-4 bg-white rounded shadow mt-4">
       <p class="mb-2"><strong>Quick RFC Search Tips:</strong></p>
       <ol class="list-decimal list-inside space-y-1">
@@ -96,48 +70,64 @@
       </ol>
     </div>
   </aside>
-
-  <!-- Main content area: header and Ace editor view -->
   <main class="flex-1 flex flex-col">
-    <header id="header" class="p-4 border-b"><!-- Current RFC title injected here --></header>
+    <header id="header" class="p-4 border-b"></header>
     <div id="ace-editor" class="flex-1"></div>
   </main>
-
-  <!-- Task pane: active and archived tasks for annotations -->
   <section id="task-pane" class="w-1/4 border-l p-4 overflow-auto">
     <h3 class="text-2xl font-semibold mb-4">Active Tasks</h3>
     <div id="active-tasks"></div>
-
     <h3 class="text-xl font-semibold mt-6 mb-2 flex justify-between items-center">
       Archived <span id="archived-count" class="bg-gray-300 text-gray-800 text-sm font-medium ml-2 px-2 py-1 rounded">0</span>
       <button id="toggle-archived" class="btn-small">Hide</button>
     </h3>
     <div id="archived-tasks" class="mb-4"></div>
   </section>
-
   <script>
     (function() {
-      // Base API endpoint for fetching RFC metadata
       const baseApi = 'https://datatracker.ietf.org/api/v1/doc/document/?format=json&doc_type=rfc&limit=50';
-      // State containers: all fetched RFCs, pinned list, active & archived tasks
+        async function fetchAllPages(url) {
+          // 1) fetch première page
+          const firstRes = await fetch(url, { mode: 'cors' });
+          if (!firstRes.ok) {
+            console.error('Erreur HTTP', firstRes.status);
+            return [];
+          }
+          const firstData = await firstRes.json();
+          const all = firstData.objects || [];
+          const total = firstData.count || 0;
+          const limit = 50;
+          const pages = Math.ceil(total / limit);
+        
+          // 2) préparer et lancer les requêtes pour les pages 2..N en parallèle
+          const fetches = [];
+          for (let i = 1; i < pages; i++) {
+            const pageUrl = new URL(url);
+            pageUrl.searchParams.set('offset', i * limit);
+            fetches.push(
+              fetch(pageUrl.toString(), { mode: 'cors' })
+                .then(r => r.ok ? r.json().then(d => d.objects || []) : [])
+                .catch(() => [])
+            );
+          }
+        
+          // 3) attendre toutes les pages, puis concaténer
+          const restArrays = await Promise.all(fetches);
+          restArrays.forEach(arr => all.push(...arr));
+        
+          return all;
+        }
+
       let rfcs = [],
           pinned = JSON.parse(localStorage.getItem('pinned') || '[]'),
           activeTasks = JSON.parse(localStorage.getItem('activeTasks') || '[]'),
           archivedTasks = JSON.parse(localStorage.getItem('archivedTasks') || '[]');
       let currentRfc = '';
-
-      // Initialize Ace editor in read-only markdown mode
       const editor = ace.edit('ace-editor');
       const Range = ace.require('ace/range').Range;
       editor.setTheme('ace/theme/github');
       editor.session.setMode('ace/mode/markdown');
       editor.setReadOnly(true);
-
-      /**
-       * Construct the raw text URL for a given RFC or tracker document name.
-       * @param {string} name - Identifier of the RFC (e.g., "rfc1234").
-       * @returns {string} URL pointing to the plaintext RFC.
-       */
       function constructDocUrl(name) {
         const m = name.match(/^rfc(\d+)$/i);
         if (m) {
@@ -146,10 +136,6 @@
           return `https://datatracker.ietf.org/doc/${name}/`;
         }
       }
-
-      /**
-       * Render the list of pinned RFCs in the sidebar.
-       */
       function renderPinned() {
         const ul = document.getElementById('pinned-list');
         const prevScroll = ul.scrollTop;
@@ -168,17 +154,10 @@
         });
         ul.scrollTop = prevScroll;
       }
-
-      // Save pinned RFCs to localStorage and re-render
       function savePinned() {
         localStorage.setItem('pinned', JSON.stringify(pinned));
         renderPinned();
       }
-
-      /**
-       * Render a given array of RFC metadata into the main list.
-       * @param {Array} items - RFC objects fetched from API.
-       */
       function renderList(items) {
         rfcs = items;
         const ul = document.getElementById('rfc-list');
@@ -198,12 +177,6 @@
         });
         ul.scrollTop = prevScroll;
       }
-
-      /**
-       * Parse search query string into logical filters (AND, OR, excludes, exact phrases, field filters).
-       * @param {string} q - Raw search input.
-       * @returns {Object} Parsed tokens and filter criteria.
-       */
       function parseDorks(q) {
         const tokens = q.match(/(?:[+-]?"[^"]*")|[+-]?\S+/g) || [];
         const andTerms = [], orTerms = [], exclude = [], filters = {}, exact = [];
@@ -226,113 +199,122 @@
         });
         return { andTerms, orTerms, exclude, filters, exact };
       }
-
-      // Reference to search input and tutorial display
       const searchInput = document.getElementById('search');
       const tutorialDiv = document.getElementById('search-tutorial');
+searchInput.addEventListener('input', async e => {
+  const q = e.target.value.trim().toLowerCase();
+  if (!q) {
+    renderList([]);
+    tutorialDiv.classList.remove('hidden');
+    return;
+  }
+  tutorialDiv.classList.add('hidden');
 
-      searchInput.addEventListener('input', e => {
-        const q = e.target.value.trim().toLowerCase();
-        if (!q) {
-          renderList([]);
-          tutorialDiv.classList.remove('hidden');
-          return;
-        }
-        tutorialDiv.classList.add('hidden');
+  // Direct RFC lookup by number
+  const m = q.match(/^(?:rfc)?(\d+)$/);
+  if (m) {
+    const name = 'rfc' + m[1];
+    const url = `${baseApi}&name__iexact=${encodeURIComponent(name)}`;
+    const objs = await fetchAllPages(url);
+    renderList(objs);
+    return;
+  }
 
-        // 1) If it's just a number (e.g. "1234") or "rfc1234", search by name__iexact
-        const m = q.match(/^(?:rfc)?(\d+)$/);
-        if (m) {
-          const name = 'rfc' + m[1];
-          fetch(`${baseApi}&name__iexact=${encodeURIComponent(name)}`, { mode: 'cors' })
-            .then(r => r.ok
-              ? r.json().then(d => renderList(d.objects || []))
-              : renderList([])
-            )
-            .catch(() => renderList([]));
-          return;
-        }
+  const { andTerms, orTerms, exclude, filters, exact } = parseDorks(q);
 
-        // 2) Otherwise, perform full-text search on the title
-        const { andTerms, orTerms, exclude, filters, exact } = parseDorks(q);
+  // --- Improved AND-logic: fetch once, then local-filter for remaining terms ---
+  if (andTerms.length) {
+    // 1) Fetch all RFCs matching the first term (all pages)
+    let results = await fetchAllPages(
+      `${baseApi}&title__icontains=${encodeURIComponent(andTerms[0])}`
+    );
 
-        const fetchFor = term =>
-          fetch(`${baseApi}&title__icontains=${encodeURIComponent(term)}`, { mode: 'cors' })
-            .then(r => r.ok
-              ? r.json().then(d => d.objects || [])
-              : []
-            );
+    // 2) For each additional AND-term, keep only titles that also include it
+    for (const term of andTerms.slice(1)) {
+      results = results.filter(r =>
+        r.title.toLowerCase().includes(term)
+      );
+    }
 
-        // Combined full-text search using both AND and OR
-        const fetchPromises = [];
+    // 3) Exact-phrase filtering (for quoted phrases), if any
+    if (exact.length) {
+      results = results.filter(r =>
+        exact.every(ph => r.title.toLowerCase().includes(ph))
+      );
+    }
 
-        // If there are AND terms, perform a single grouped AND request
-        if (andTerms.length) {
-          const urlAND = andTerms.reduce(
-            (u, term) => `${u}&title__icontains=${encodeURIComponent(term)}`,
-            baseApi
-          );
-          fetchPromises.push(
-            fetch(urlAND, { mode: 'cors' })
-              .then(r => r.ok ? r.json().then(d => d.objects || []) : [])
-          );
-        }
+    // 4) Exclusions
+    if (exclude.length) {
+      results = results.filter(r =>
+        exclude.every(ex =>
+          !(r.title + ' ' + r.name).toLowerCase().includes(ex)
+        )
+      );
+    }
 
-        // If there are OR terms, perform one request per term
-        orTerms.forEach(term => {
-          fetchPromises.push(fetchFor(term));
-        });
+    // 5) Field filters (author:, status:, etc.)
+    Object.entries(filters).forEach(([field, { include: incs, exclude: excs }]) => {
+      if (incs.length) {
+        results = results.filter(r =>
+          incs.some(val => String(r[field]).toLowerCase() === val)
+        );
+      }
+      if (excs.length) {
+        results = results.filter(r =>
+          excs.every(val => String(r[field]).toLowerCase() !== val)
+        );
+      }
+    });
 
-        // Wait for all requests, then merge and filter results
-        Promise.all(fetchPromises)
-          .then(arrays => {
-            // flatten and deduplicate by RFC name
-            let merged = Array.from(
-              new Map(arrays.flat().map(r => [r.name, r])).values()
-            );
-            // (optional) if both AND and OR present, reapply AND filter to be safe
-            if (andTerms.length && orTerms.length) {
-              merged = merged.filter(r =>
-                andTerms.every(term =>
-                  r.title.toLowerCase().includes(term)
-                )
-              );
-            }
-            applyClientFilters(merged);
-          })
-          .catch(() => renderList([]));
+    renderList(results);
+    return;
+  }
+  // ---------------------------------------------------------------
 
-        // 3) Post-processing: exact matches, exclusions and field filters
-        function applyClientFilters(results) {
-          if (exact.length) {
-            results = results.filter(r =>
-              exact.every(ph => r.title.toLowerCase().includes(ph))
-            );
-          }
-          if (exclude.length) {
-            results = results.filter(r =>
-              exclude.every(ex =>
-                !(r.title + ' ' + r.name).toLowerCase().includes(ex)
-              )
-            );
-          }
-          Object.entries(filters).forEach(([field, { include: incs, exclude: excs }]) => {
-            if (incs.length) {
-              results = results.filter(r =>
-                incs.some(val => String(r[field]).toLowerCase() === val)
-              );
-            }
-            if (excs.length) {
-              results = results.filter(r =>
-                excs.every(val => String(r[field]).toLowerCase() !== val)
-              );
-            }
-          });
-          renderList(results);
-        }
-      });
+  // OR-term + exact + other filters (unchanged logic)
+  const fetchFor = term =>
+    fetchAllPages(`${baseApi}&title__icontains=${encodeURIComponent(term)}`);
+  const fetchPromises = orTerms.map(fetchFor);
+  try {
+    const arrays = await Promise.all(fetchPromises);
+    let merged = Array.from(
+      new Map(arrays.flat().map(r => [r.name, r])).values()
+    );
 
-      // Delegate clicks on RFC list: pin/open or delete
+    if (exact.length) {
+      merged = merged.filter(r =>
+        exact.every(ph => r.title.toLowerCase().includes(ph))
+      );
+    }
+
+    if (exclude.length) {
+      merged = merged.filter(r =>
+        exclude.every(ex =>
+          !(r.title + ' ' + r.name).toLowerCase().includes(ex)
+        )
+      );
+    }
+
+    Object.entries(filters).forEach(([field, { include: incs, exclude: excs }]) => {
+      if (incs.length) {
+        merged = merged.filter(r =>
+          incs.some(val => String(r[field]).toLowerCase() === val)
+        );
+      }
+      if (excs.length) {
+        merged = merged.filter(r =>
+          excs.every(val => String(r[field]).toLowerCase() !== val)
+        );
+      }
+    });
+
+    renderList(merged);
+  } catch {
+    renderList([]);
+  }
+});
+
+
       document.getElementById('rfc-list').addEventListener('click', e => {
         if (e.target.tagName === 'BUTTON' && e.target.dataset.name) {
           const name = e.target.dataset.name;
@@ -349,8 +331,6 @@
           renderList(rfcs);
         }
       });
-
-      // Delegate clicks on pinned list: open or remove pin
       document.getElementById('pinned-list').addEventListener('click', e => {
         if (e.target.tagName === 'BUTTON' && e.target.dataset.name) {
           fetchAndRender(e.target.dataset.name);
@@ -361,10 +341,6 @@
           savePinned();
         }
       });
-
-      /**
-       * Display active tasks or an onboarding placeholder if none exist.
-       */
       function renderActiveTasks() {
         const container = document.getElementById('active-tasks');
         const prevScroll = container.scrollTop;
@@ -382,7 +358,6 @@
             const card = document.createElement('div');
             card.className = 'task-card';
             card.dataset.rfc = t.rfc;
-            // Render main task and subtasks with checkboxes and delete buttons
             card.innerHTML = `
               <div class="flex justify-between items-center">
                 <h4 class="font-medium flex-1">
@@ -406,10 +381,6 @@
         container.scrollTop = prevScroll;
         if (activeTasks.length > 0) bindTaskEvents();
       }
-
-      /**
-       * Display archived tasks and update archive count.
-       */
       function renderArchivedTasks() {
         const container = document.getElementById('archived-tasks');
         const prevScroll = container.scrollTop;
@@ -429,10 +400,10 @@
             </div>
             <div class="archived-subtasks hidden ml-8 mt-2">
               ${t.subtasks.map((st,j) => `
-                <div class="subtask-item flex items-center">`
-           + `<input type="checkbox" data-sti="${i}-${j}" class="mr-2" ${st.done ? 'checked' : ''} /> ${st.text}`
-           + `</div>`
-              ).join('')}
+                <div class="subtask-item flex items-center">
+                  <input type="checkbox" data-sti="${i}-${j}" class="mr-2" ${st.done ? 'checked' : ''} /> ${st.text}
+                </div>
+              `).join('')}
             </div>
           `;
           container.appendChild(card);
@@ -440,8 +411,6 @@
         bindArchiveEvents();
         container.scrollTop = prevScroll;
       }
-
-      // Attach change and click handlers for active task interactions
       function bindTaskEvents() {
         document.querySelectorAll('#active-tasks input[data-ti]').forEach(cb => {
           cb.addEventListener('change', e => {
@@ -468,8 +437,6 @@
           });
         });
       }
-
-      // Global click handlers for deleting tasks/subtasks
       document.getElementById('active-tasks').addEventListener('click', e => {
         if (e.target.dataset.delTask !== undefined) {
           activeTasks.splice(Number(e.target.dataset.delTask),1);
@@ -492,8 +459,6 @@
           saveTasks();
         }
       });
-
-      // Toggle archived subtasks visibility and reactivation
       function bindArchiveEvents() {
         document.querySelectorAll('#archived-tasks input[data-ai]').forEach(cb => {
           cb.addEventListener('change', e => {
@@ -517,8 +482,6 @@
           });
         });
       }
-
-      // Persist tasks to localStorage and rerender everything
       function saveTasks() {
         localStorage.setItem('activeTasks', JSON.stringify(activeTasks));
         localStorage.setItem('archivedTasks', JSON.stringify(archivedTasks));
@@ -526,24 +489,16 @@
         renderArchivedTasks();
         highlightEditorTasks();
       }
-
-      /**
-       * Add a new active task tied to current RFC and selected text range.
-       */
       function addTask(text, range) {
         activeTasks.unshift({ text, done: false, subtasks: [], rfc: currentRfc, range });
         saveTasks();
       }
-
-      // Toggle archived tasks pane visibility
       document.getElementById('toggle-archived').addEventListener('click', () => {
         document.getElementById('archived-tasks').classList.toggle('hidden');
       });
-
-      // Highlight the corresponding RFC entry in the sidebar
       let lastHighlighted = null;
       function highlightRfc(name) {
-        const btn = document.querySelector(`#dashboard button[data-name=\"${name}\"]`);
+        const btn = document.querySelector(`#dashboard button[data-name="${name}"]`);
         if (!btn) return;
         const li = btn.closest('li');
         if (name === lastHighlighted) {
@@ -554,16 +509,10 @@
           lastHighlighted = name;
         }
       }
-
-      /**
-       * Render highlight markers in the Ace editor for any tasks tied to the current RFC.
-       */
       function highlightEditorTasks() {
-        // Remove existing task markers
         Object.values(editor.session.getMarkers(false)).forEach(m => {
           if (m.clazz === 'task-highlight') editor.session.removeMarker(m.id);
         });
-        // Add markers for all tasks belonging to the current document
         activeTasks.concat(archivedTasks).forEach(t => {
           if (t.rfc === currentRfc && t.range) {
             const { startRow, startCol, endRow, endCol } = t.range;
@@ -571,8 +520,6 @@
           }
         });
       }
-
-      // Show "+" button when text is selected in the editor
       editor.container.addEventListener('mouseup', () => {
         setTimeout(() => {
           const sel = editor.getSelectedText();
@@ -595,11 +542,6 @@
           }
         }, 10);
       });
-
-      /**
-       * Fetch and render an RFC document by name, update editor and tasks.
-       * @param {string} name - RFC identifier (e.g., "rfc822").
-       */
       function fetchAndRender(name) {
         currentRfc = name;
         const rawUrl = constructDocUrl(name);
@@ -615,8 +557,6 @@
           })
           .catch(() => { editor.session.setValue('Error loading.', -1); });
       }
-
-      // Initial rendering of pinned items and tasks on page load
       renderPinned();
       renderActiveTasks();
       renderArchivedTasks();

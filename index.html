@@ -236,6 +236,26 @@ searchInput.addEventListener('input', async e => {
       );
     }
     
+     // 2.5) Inclusion-filter for +terms: keep RFCs where each +term appears in the title OR in metadata
+     if (orTerms.length) {
+       for (const term of orTerms) {
+         results = results.filter(r => {
+           // build a searchable string from title + metadata fields
+           const metaString = [
+             r.name,
+             r.title,
+             // si l’objet RFC a un tableau d’auteurs, on les inclut aussi
+             ...(r.authors?.map(a => a.name) || []),
+             r.status,
+             r.stream
+           ].join(' ').toLowerCase();
+           // accepte si le terme est dans le titre OU dans la méta
+           return r.title.toLowerCase().includes(term)
+               || metaString.includes(term);
+         });
+       }
+     }
+    
    if (results.length === 0 && andTerms.length > 1) {
      const phrase = andTerms.join(' ');
      results = await fetchAllPages(

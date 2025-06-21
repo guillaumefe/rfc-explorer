@@ -225,9 +225,9 @@ searchInput.addEventListener('input', async e => {
   // --- Improved AND-logic: fetch once, then local-filter for remaining terms ---
   if (andTerms.length) {
     // 1) Fetch all RFCs matching the first term (all pages)
-    let results = await fetchAllPages(
-      `${baseApi}&title__icontains=${encodeURIComponent(andTerms[0])}`
-    );
+      let results = await fetchAllPages(
+        `${baseApi}&title__icontains=${encodeURIComponent(andTerms[0])}`
+      );
 
     // 2) For each additional AND-term, keep only titles that also include it
     for (const term of andTerms.slice(1)) {
@@ -235,6 +235,13 @@ searchInput.addEventListener('input', async e => {
         r.title.toLowerCase().includes(term)
       );
     }
+    
+   if (results.length === 0 && andTerms.length > 1) {
+     const phrase = andTerms.join(' ');
+     results = await fetchAllPages(
+       `${baseApi}&title__icontains=${encodeURIComponent(phrase)}`
+     );
+   }
 
     // 3) Exact-phrase filtering (for quoted phrases), if any
     if (exact.length) {

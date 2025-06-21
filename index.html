@@ -1,64 +1,89 @@
 <!DOCTYPE html>
+<!--
+  RFC Explorer
+  A lightweight interface for browsing, pinning, and annotating IETF RFC documents.
+-->
 <html lang="en">
 <head>
-  <!-- Document metadata and responsive design settings -->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RFC Explorer</title>
   <!-- Tailwind CSS for utility-first styling -->
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-  <!-- ACE Editor library for code rendering and editing -->
+  <!-- Ace Editor library for in-browser code/markdown viewing -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.9.6/ace.js"></script>
 
   <style>
-    /* Base font family for consistency across browsers */
+    /* Set default font */
     body { font-family: 'Inter', sans-serif; }
-    /* Dashboard container background and layout */
+    /* Dashboard styling: light background */
     #dashboard { background-color: #f9fafb; }
-    /* List item styling for RFC entries */
-    #dashboard li { background: #fff; border-radius: .5rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); padding: .75rem; position: relative; }
-    /* Highlighted and pulsing states for user interaction feedback */
+    /* Individual RFC list items: card-like appearance */
+    #dashboard li {
+      background: #fff;
+      border-radius: .5rem;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      padding: .75rem;
+      position: relative;
+    }
+    /* Highlighted RFC entry */
     #dashboard li.highlight { background-color: #fef3c7; }
+    /* Pulse animation for re-highlighting */
     #dashboard li.pulse { animation: pulse-highlight 0.5s ease-in-out; }
     @keyframes pulse-highlight {
       0% { background-color: #fef3c7; }
       50% { background-color: #fdba74; }
       100% { background-color: #fef3c7; }
     }
-    /* Button hover transition for a smoother UI experience */
+    /* Button hover effect in dashboard */
     #dashboard button { transition: background .2s; }
     #dashboard button:hover { background: #2563eb; }
-    /* Header styling with subtle box shadow for separation */
+    /* Header bar styling */
     #header { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-    /* Task card design for active and archived tasks */
-    .task-card { background: #fff; border-radius: .5rem; padding: .75rem; margin-bottom: .75rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05); cursor: pointer; }
+    /* Task card appearance */
+    .task-card {
+      background: #fff;
+      border-radius: .5rem;
+      padding: .75rem;
+      margin-bottom: .75rem;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      cursor: pointer;
+    }
+    /* Nested subtask indent */
     .subtask-item { margin-left: 1.5rem; }
-    /* Small button utility class for consistent spacing */
+    /* Small button modifier */
     .btn-small { font-size: .75rem; padding: .25rem .5rem; border-radius: .25rem; }
-    /* ACE Editor marker styling for task highlights */
-    .ace_marker-layer .task-highlight, .ace_task-highlight { position: absolute; background-color: rgba(255,235,59,0.4); }
+    /* Highlight marker used by Ace editor for tasks */
+    .ace_marker-layer .task-highlight, .ace_task-highlight {
+      position: absolute;
+      background-color: rgba(255,235,59,0.4);
+    }
+    /* Delete button styling */
     .btn-delete {
       font-size: 0.75rem;
       padding: 0.25rem;
       border-radius: 0.25rem;
       background: transparent;
-      color: #e53e3e;       /* rouge discret */
+      color: #e53e3e;
       transition: color .2s;
     }
-    .btn-delete:hover {
-      color: #c53030;
-    }
-  
+    .btn-delete:hover { color: #c53030; }
   </style>
 </head>
+
 <body class="h-screen flex">
-  <!-- Sidebar: RFC dashboard with search and pinned items -->
+  <!-- Sidebar: RFC list, search box, pinned items -->
   <aside id="dashboard" class="w-1/4 border-r p-4 overflow-auto">
     <h2 class="text-2xl font-semibold mb-4">My RFCs</h2>
-    <input id="search" type="text" placeholder="Search…" class="w-full mb-4 p-2 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+    <!-- Search input for filtering RFC list -->
+    <input id="search" type="text" placeholder="Search…"
+           class="w-full mb-4 p-2 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+    <!-- Pinned RFCs container -->
     <ul id="pinned-list" class="space-y-3 mb-6 max-h-48 overflow-y-auto"></ul>
+    <!-- Dynamic RFC search results -->
     <ul id="rfc-list" class="space-y-3"></ul>
-    <!-- Mini-tutorial for Dork-style RFC searching -->
+
+    <!-- Search tutorial displayed when input is empty -->
     <div id="search-tutorial" class="text-gray-600 italic p-4 bg-white rounded shadow mt-4">
       <p class="mb-2"><strong>Quick RFC Search Tips:</strong></p>
       <ol class="list-decimal list-inside space-y-1">
@@ -72,16 +97,17 @@
     </div>
   </aside>
 
-  <!-- Main content: Header and ACE Editor container -->
+  <!-- Main content area: header and Ace editor view -->
   <main class="flex-1 flex flex-col">
-    <header id="header" class="p-4 border-b"></header>
+    <header id="header" class="p-4 border-b"><!-- Current RFC title injected here --></header>
     <div id="ace-editor" class="flex-1"></div>
   </main>
 
-  <!-- Task pane: Active and archived tasks management -->
+  <!-- Task pane: active and archived tasks for annotations -->
   <section id="task-pane" class="w-1/4 border-l p-4 overflow-auto">
     <h3 class="text-2xl font-semibold mb-4">Active Tasks</h3>
     <div id="active-tasks"></div>
+
     <h3 class="text-xl font-semibold mt-6 mb-2 flex justify-between items-center">
       Archived <span id="archived-count" class="bg-gray-300 text-gray-800 text-sm font-medium ml-2 px-2 py-1 rounded">0</span>
       <button id="toggle-archived" class="btn-small">Hide</button>
@@ -91,472 +117,509 @@
 
   <script>
     (function() {
-      // Base API endpoint for fetching RFC documents (limited to 50 results)
+      // Base API endpoint for fetching RFC metadata
       const baseApi = 'https://datatracker.ietf.org/api/v1/doc/document/?format=json&doc_type=rfc&limit=50';
-      // Local storage keys for pinned RFCs and task lists
-      let rfcs = [], pinned = JSON.parse(localStorage.getItem('pinned') || '[]');
-      let activeTasks = JSON.parse(localStorage.getItem('activeTasks') || '[]');
-      let archivedTasks = JSON.parse(localStorage.getItem('archivedTasks') || '[]');
+      // State containers: all fetched RFCs, pinned list, active & archived tasks
+      let rfcs = [],
+          pinned = JSON.parse(localStorage.getItem('pinned') || '[]'),
+          activeTasks = JSON.parse(localStorage.getItem('activeTasks') || '[]'),
+          archivedTasks = JSON.parse(localStorage.getItem('archivedTasks') || '[]');
       let currentRfc = '';
 
-      // Initialize ACE Editor for read-only Markdown rendering
+      // Initialize Ace editor in read-only markdown mode
       const editor = ace.edit('ace-editor');
       const Range = ace.require('ace/range').Range;
       editor.setTheme('ace/theme/github');
       editor.session.setMode('ace/mode/markdown');
       editor.setReadOnly(true);
 
-      /* ---------- RFC List Rendering and Interaction ---------- */
-      // Render pinned RFCs in the sidebar
-    function renderPinned() {
-      const ul = document.getElementById('pinned-list');
-      // Sauvegarde de la position de scroll actuelle
-      const prevScroll = ul.scrollTop;
-      // Vidage et reconstruction
-      ul.innerHTML = '';
-      pinned.forEach(r => {
-        const li = document.createElement('li');
-        li.className = 'flex justify-between items-center';
-        li.innerHTML = `
-          <span class="font-medium text-gray-700">${r.name}</span>
-          <div class="flex items-center space-x-1">
-            <button data-name="${r.name}" class="bg-green-600 text-white btn-small">Open</button>
-            <button data-del-pin="${r.name}" class="btn-delete">&times;</button>
-          </div>
-        `;
-        ul.appendChild(li);
-      });
-      // Restauration de la position de scroll
-      ul.scrollTop = prevScroll;
-    }
-
-      // Persist pinned RFCs to local storage and re-render
-      function savePinned() { localStorage.setItem('pinned', JSON.stringify(pinned)); renderPinned(); }
-
-      // Render search results in the main list
-    function renderList(items) {
-      rfcs = items;
-      const ul = document.getElementById('rfc-list');
-      // Sauvegarde de la position de scroll actuelle
-      const prevScroll = ul.scrollTop;
-      // Vidage et reconstruction
-      ul.innerHTML = '';
-      items.forEach(r => {
-        const li = document.createElement('li');
-        li.className = 'flex justify-between items-center';
-        li.innerHTML = `
-          <span class="text-gray-800">${r.name} - ${r.title}</span>
-          <div class="flex items-center space-x-1">
-            <button data-name="${r.name}" class="bg-blue-600 text-white btn-small">Download</button>
-            <button data-del-rfc="${r.name}" class="btn-delete">&times;</button>
-          </div>
-        `;
-        ul.appendChild(li);
-      });
-      // Restauration de la position de scroll
-      ul.scrollTop = prevScroll;
-    }
-
+      /**
+       * Construct the raw text URL for a given RFC or tracker document name.
+       * @param {string} name - Identifier of the RFC (e.g., "rfc1234").
+       * @returns {string} URL pointing to the plaintext RFC.
+       */
+      function constructDocUrl(name) {
+        const m = name.match(/^rfc(\d+)$/i);
+        if (m) {
+          return `https://www.rfc-editor.org/rfc/rfc${m[1]}.txt`;
+        } else {
+          return `https://datatracker.ietf.org/doc/${name}/`;
+        }
+      }
 
       /**
-       * Parses a dork-style search query into AND-terms, OR-terms, exclude-terms, field filters, and exact phrases.
-       * @param {string} q - The raw query string.
-       * @returns {{
-       *   andTerms: string[],
-       *   orTerms: string[],
-       *   exclude: string[],
-       *   filters: Record<string, { include: string[], exclude: string[] }>,
-       *   exact: string[]
-       * }}
+       * Render the list of pinned RFCs in the sidebar.
+       */
+      function renderPinned() {
+        const ul = document.getElementById('pinned-list');
+        const prevScroll = ul.scrollTop;
+        ul.innerHTML = '';
+        pinned.forEach(r => {
+          const li = document.createElement('li');
+          li.className = 'flex justify-between items-center';
+          li.innerHTML = `
+            <span class="font-medium text-gray-700">${r.name}</span>
+            <div class="flex items-center space-x-1">
+              <button data-name="${r.name}" class="bg-green-600 text-white btn-small">Open</button>
+              <button data-del-pin="${r.name}" class="btn-delete">&times;</button>
+            </div>
+          `;
+          ul.appendChild(li);
+        });
+        ul.scrollTop = prevScroll;
+      }
+
+      // Save pinned RFCs to localStorage and re-render
+      function savePinned() {
+        localStorage.setItem('pinned', JSON.stringify(pinned));
+        renderPinned();
+      }
+
+      /**
+       * Render a given array of RFC metadata into the main list.
+       * @param {Array} items - RFC objects fetched from API.
+       */
+      function renderList(items) {
+        rfcs = items;
+        const ul = document.getElementById('rfc-list');
+        const prevScroll = ul.scrollTop;
+        ul.innerHTML = '';
+        items.forEach(r => {
+          const li = document.createElement('li');
+          li.className = 'flex justify-between items-center';
+          li.innerHTML = `
+            <span class="text-gray-800">${r.name} — ${r.title}</span>
+            <div class="flex items-center space-x-1">
+              <button data-name="${r.name}" class="bg-blue-600 text-white btn-small">Download</button>
+              <button data-del-rfc="${r.name}" class="btn-delete">&times;</button>
+            </div>
+          `;
+          ul.appendChild(li);
+        });
+        ul.scrollTop = prevScroll;
+      }
+
+      /**
+       * Parse search query string into logical filters (AND, OR, excludes, exact phrases, field filters).
+       * @param {string} q - Raw search input.
+       * @returns {Object} Parsed tokens and filter criteria.
        */
       function parseDorks(q) {
         const tokens = q.match(/(?:[+-]?"[^"]*")|[+-]?\S+/g) || [];
-        const andTerms = [];   // default (AND) terms
-        const orTerms = [];    // +-prefixed (OR) terms
-        const exclude = [];
-        const filters = {};
-        const exact = [];
-    
+        const andTerms = [], orTerms = [], exclude = [], filters = {}, exact = [];
         tokens.forEach(tok => {
-          let sign = null;
-          let core = tok;
-    
-          if (tok[0] === '+' || tok[0] === '-') {
-            sign = tok[0];
-            core = tok.slice(1);
-          }
-    
-          // 1) Exact phrase in quotes
+          let sign = null, core = tok;
+          if (tok[0] === '+' || tok[0] === '-') { sign = tok[0]; core = tok.slice(1); }
           if (/^".*"$/.test(core)) {
             const phrase = core.slice(1, -1);
             exact.push(phrase);
-            if (sign === '-') exclude.push(phrase);
-            else andTerms.push(phrase);
-    
-          // 2) Field filter (e.g. author:Smith or -status:draft)
+            (sign === '-') ? exclude.push(phrase) : andTerms.push(phrase);
           } else if (/^\w+:/.test(core)) {
             const [field, val] = core.split(':');
             filters[field] = filters[field] || { include: [], exclude: [] };
-            if (sign === '-') filters[field].exclude.push(val);
-            else filters[field].include.push(val);
-    
-          // 3) Exclude single term
+            (sign === '-') ? filters[field].exclude.push(val) : filters[field].include.push(val);
           } else if (sign === '-') {
             exclude.push(core);
-    
-          // 4) Include: OR if +, AND if unprefixed
           } else {
             (sign === '+' ? orTerms : andTerms).push(core);
           }
         });
-    
         return { andTerms, orTerms, exclude, filters, exact };
       }
-    
-      // Grab references up front
+
+      // Reference to search input and tutorial display
       const searchInput = document.getElementById('search');
       const tutorialDiv = document.getElementById('search-tutorial');
-      
+
       searchInput.addEventListener('input', e => {
-        const q = e.target.value.trim();
-      
+        const q = e.target.value.trim().toLowerCase();
         if (!q) {
-          // If empty → clear the RFC list and show the mini-tutorial
           renderList([]);
           tutorialDiv.classList.remove('hidden');
           return;
         }
-      
-        // Non-empty → hide the mini-tutorial and perform search
         tutorialDiv.classList.add('hidden');
-      
+
+        // 1) If it's just a number (e.g. "1234") or "rfc1234", search by name__iexact
+        const m = q.match(/^(?:rfc)?(\d+)$/);
+        if (m) {
+          const name = 'rfc' + m[1];
+          fetch(`${baseApi}&name__iexact=${encodeURIComponent(name)}`, { mode: 'cors' })
+            .then(r => r.ok
+              ? r.json().then(d => renderList(d.objects || []))
+              : renderList([])
+            )
+            .catch(() => renderList([]));
+          return;
+        }
+
+        // 2) Otherwise, perform full-text search on the title
         const { andTerms, orTerms, exclude, filters, exact } = parseDorks(q);
-      
-        // Helper: fetch results for a single term
+
         const fetchFor = term =>
           fetch(`${baseApi}&title__icontains=${encodeURIComponent(term)}`, { mode: 'cors' })
-            .then(r => r.ok ? r.json().then(d => d.objects || []) : []);
-      
-        // OR logic: fetch each + dedupe, otherwise single combined AND
-        const baseFetch = orTerms.length
-          ? Promise.all(orTerms.map(fetchFor)).then(arrays =>
-              Array.from(
-                arrays.flat()
-                      .reduce((map, r) => map.set(r.name, r), new Map())
-                      .values()
-              )
-            )
-          : fetchFor(andTerms.length
-              ? andTerms.join('&title__icontains=')
-              : ''
+            .then(r => r.ok
+              ? r.json().then(d => d.objects || [])
+              : []
             );
-      
-        baseFetch
-          .then(results => {
-            // Enforce multi-AND at client side
-            if (!orTerms.length && andTerms.length > 1) {
-              results = results.filter(r =>
-                andTerms.every(w =>
-                  (r.title + ' ' + r.name).toLowerCase().includes(w.toLowerCase())
+
+        // Combined full-text search using both AND and OR
+        const fetchPromises = [];
+
+        // If there are AND terms, perform a single grouped AND request
+        if (andTerms.length) {
+          const urlAND = andTerms.reduce(
+            (u, term) => `${u}&title__icontains=${encodeURIComponent(term)}`,
+            baseApi
+          );
+          fetchPromises.push(
+            fetch(urlAND, { mode: 'cors' })
+              .then(r => r.ok ? r.json().then(d => d.objects || []) : [])
+          );
+        }
+
+        // If there are OR terms, perform one request per term
+        orTerms.forEach(term => {
+          fetchPromises.push(fetchFor(term));
+        });
+
+        // Wait for all requests, then merge and filter results
+        Promise.all(fetchPromises)
+          .then(arrays => {
+            // flatten and deduplicate by RFC name
+            let merged = Array.from(
+              new Map(arrays.flat().map(r => [r.name, r])).values()
+            );
+            // (optional) if both AND and OR present, reapply AND filter to be safe
+            if (andTerms.length && orTerms.length) {
+              merged = merged.filter(r =>
+                andTerms.every(term =>
+                  r.title.toLowerCase().includes(term)
                 )
               );
             }
-      
-            // Exact-phrase filters
-            if (exact.length) {
-              results = results.filter(r =>
-                exact.every(ph => r.title.toLowerCase().includes(ph.toLowerCase()))
-              );
-            }
-      
-            // Global exclusions
-            if (exclude.length) {
-              results = results.filter(r => {
-                const hay = (r.title + ' ' + r.name).toLowerCase();
-                return exclude.every(ex => !hay.includes(ex.toLowerCase()));
-              });
-            }
-      
-            // Field-specific include/exclude
-            Object.entries(filters).forEach(([field, { include: incs, exclude: excs }]) => {
-              if (incs.length) {
-                results = results.filter(r =>
-                  incs.some(val => String(r[field]).toLowerCase() === val.toLowerCase())
-                );
-              }
-              if (excs.length) {
-                results = results.filter(r =>
-                  excs.every(val => String(r[field]).toLowerCase() !== val.toLowerCase())
-                );
-              }
-            });
-      
-            renderList(results);
+            applyClientFilters(merged);
           })
           .catch(() => renderList([]));
+
+        // 3) Post-processing: exact matches, exclusions and field filters
+        function applyClientFilters(results) {
+          if (exact.length) {
+            results = results.filter(r =>
+              exact.every(ph => r.title.toLowerCase().includes(ph))
+            );
+          }
+          if (exclude.length) {
+            results = results.filter(r =>
+              exclude.every(ex =>
+                !(r.title + ' ' + r.name).toLowerCase().includes(ex)
+              )
+            );
+          }
+          Object.entries(filters).forEach(([field, { include: incs, exclude: excs }]) => {
+            if (incs.length) {
+              results = results.filter(r =>
+                incs.some(val => String(r[field]).toLowerCase() === val)
+              );
+            }
+            if (excs.length) {
+              results = results.filter(r =>
+                excs.every(val => String(r[field]).toLowerCase() !== val)
+              );
+            }
+          });
+          renderList(results);
+        }
       });
 
-      // Delegate click events for downloading/pinning RFCs
+      // Delegate clicks on RFC list: pin/open or delete
       document.getElementById('rfc-list').addEventListener('click', e => {
-        if (e.target.tagName === 'BUTTON') {
+        if (e.target.tagName === 'BUTTON' && e.target.dataset.name) {
           const name = e.target.dataset.name;
           const item = rfcs.find(r => r.name === name);
-          if (item && !pinned.find(p => p.name === name)) pinned.push(item), savePinned();
-          fetchAndRender(name); highlightRfc(name);
-        }
-      });
-      document.getElementById('pinned-list').addEventListener('click', e => {
-        if (e.target.tagName === 'BUTTON') {
-          const name = e.target.dataset.name;
-          fetchAndRender(name); highlightRfc(name);
-        }
-      });
-
-      /* ---------- Task Management Functions ---------- */
-      // Render active tasks with subtasks and bind events
-    function renderActiveTasks() {
-      const c = document.getElementById('active-tasks');
-      // 1) Sauvegarde de la position de scroll
-      const prevScroll = c.scrollTop;
-    
-      // 2) Vidage du container
-      c.innerHTML = '';
-    
-      // 3) Rendu du contenu
-      if (activeTasks.length === 0) {
-        c.innerHTML = `
-          <div class="text-gray-600 italic p-4 bg-white rounded shadow">
-            <p class="mb-2">1. Select text in the editor to create a new task.</p>
-            <p class="mb-2">2. Click the “+” button to add it under Active Tasks.</p>
-            <p>3. Use the checkbox to mark tasks done and archive them.</p>
-          </div>
-        `;
-      } else {
-        activeTasks.forEach((t, i) => {
-          const subs = t.subtasks || [];
-          const div = document.createElement('div');
-          div.className = 'task-card';
-          div.dataset.rfc = t.rfc;
-          div.innerHTML = `
-            <div class="flex justify-between items-center">
-              <h4 class="font-medium flex-1">
-                <input type="checkbox" data-ti="${i}" class="mr-2"/> ${t.text}
-              </h4>
-              <button data-del-task="${i}" class="btn-delete">&times;</button>
-            </div>
-            ${subs.map((st, j) =>
-              `<div class="subtask-item flex items-center justify-between">
-                 <div class="flex items-center">
-                   <input type="checkbox" data-sti="${i}-${j}" class="mr-2"/>${st.text}
-                 </div>
-                 <button data-del-subtask="${i}-${j}" class="btn-delete">&times;</button>
-               </div>`
-            ).join('')}
-            <button data-si="${i}" class="text-blue-600 btn-small mt-2">+ Subtask</button>
-          `;
-          c.appendChild(div);
-        });
-      }
-    
-      // 4) Restauration de la position de scroll
-      c.scrollTop = prevScroll;
-    
-      // 5) Liaisons des événements (uniquement si des tâches existent)
-      if (activeTasks.length > 0) bindTaskEvents();
-    }
-
-
-      // Render archived tasks and bind archive-related events
-    function renderArchivedTasks() {
-      const container = document.getElementById('archived-tasks');
-      // 1) Sauvegarde de la position de scroll actuelle
-      const prevScroll = container.scrollTop;
-    
-      // 2) Mise à jour du compteur
-      document.getElementById('archived-count').textContent = archivedTasks.length;
-    
-      // 3) Vidage et reconstruction
-      container.innerHTML = '';
-      archivedTasks.forEach((t, i) => {
-        const subs = t.subtasks || [];
-        const div = document.createElement('div');
-        div.className = 'task-card';
-        div.dataset.rfc = t.rfc;
-        div.innerHTML = `
-          <div class="flex items-center justify-between">
-            <div class="flex items-center">
-              <input type="checkbox" data-ai="${i}" class="mr-2" checked/>
-              <span>${t.text}</span>
-            </div>
-            <button class="archive-toggle text-xs px-1 py-0.5 ml-2">▶</button>
-          </div>
-          <div class="archived-subtasks hidden ml-8 mt-2">
-            ${subs.map((st, j) =>
-              `<div class="subtask-item flex items-center">
-                 <input type="checkbox" data-sti="${i}-${j}" class="mr-2"${st.done ? ' checked' : ''}/>
-                 ${st.text}
-               </div>`
-            ).join('')}
-          </div>
-        `;
-        container.appendChild(div);
-      });
-    
-      // 4) Liaisons des événements
-      bindArchiveEvents();
-    
-      // 5) Restauration de la position de scroll
-      container.scrollTop = prevScroll;
-    }
-
-
-      // Bind change and click events for active tasks
-      function bindTaskEvents() {
-        document.querySelectorAll('#active-tasks input[data-ti]').forEach(cb => cb.addEventListener('change', e => {
-          // Move task to archived on checkbox toggle
-          const i = Number(e.target.dataset.ti);
-          const task = activeTasks.splice(i, 1)[0]; archivedTasks.unshift(task); saveTasks();
-        }));
-        document.querySelectorAll('#active-tasks button[data-si]').forEach(btn => btn.addEventListener('click', e => {
-          // Prompt user to add a new subtask
-          const i = Number(e.target.dataset.si);
-          const text = prompt('Add a subtask for "' + activeTasks[i].text + '"');
-          if (text) { activeTasks[i].subtasks.push({ text, done: false }); saveTasks(); }
-        }));
-        document.querySelectorAll('#active-tasks .task-card').forEach(card => card.addEventListener('click', e => {
-          // Highlight associated RFC on card click
-          if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-          highlightRfc(card.dataset.rfc);
-        }));
-      }
-      
-        // Remove a pinned RFC
-        document.getElementById('pinned-list').addEventListener('click', e => {
-          if (e.target.dataset.delPin) {
-            pinned = pinned.filter(r => r.name !== e.target.dataset.delPin);
+          if (item && !pinned.some(p => p.name === name)) {
+            pinned.push(item);
             savePinned();
           }
-        });
-        
-        // Remove an RFC from the search results
-        document.getElementById('rfc-list').addEventListener('click', e => {
-          if (e.target.dataset.delRfc) {
-            rfcs = rfcs.filter(r => r.name !== e.target.dataset.delRfc);
-            renderList(rfcs);
-          }
-        });
-        
-        // Delete an active task or its subtask
-        document.getElementById('active-tasks').addEventListener('click', e => {
-          if (e.target.dataset.delTask !== undefined) {
-            activeTasks.splice(Number(e.target.dataset.delTask), 1);
-            saveTasks();
-          }
-          if (e.target.dataset.delSubtask) {
-            const [taskIndex, subtaskIndex] = e.target.dataset.delSubtask.split('-').map(Number);
-            activeTasks[taskIndex].subtasks.splice(subtaskIndex, 1);
-            saveTasks();
-          }
-        });
-        
-        // Delete an archived task or its subtask
-        document.getElementById('archived-tasks').addEventListener('click', e => {
-          if (e.target.dataset.delArchTask !== undefined) {
-            archivedTasks.splice(Number(e.target.dataset.delArchTask), 1);
-            saveTasks();
-          }
-          if (e.target.dataset.delArchSubtask) {
-            const [taskIndex, subtaskIndex] = e.target.dataset.delArchSubtask.split('-').map(Number);
-            archivedTasks[taskIndex].subtasks.splice(subtaskIndex, 1);
-            saveTasks();
-          }
-        });
+          fetchAndRender(name);
+          highlightRfc(name);
+        }
+        if (e.target.dataset.delRfc) {
+          rfcs = rfcs.filter(r => r.name !== e.target.dataset.delRfc);
+          renderList(rfcs);
+        }
+      });
 
-      // Bind change and toggle events for archived tasks
-      function bindArchiveEvents() {
-        document.querySelectorAll('#archived-tasks input[data-ai]').forEach(cb => cb.addEventListener('change', e => {
-          // Restore task to active on checkbox uncheck
-          const i = Number(e.target.dataset.ai);
-          const task = archivedTasks.splice(i, 1)[0]; activeTasks.unshift(task); saveTasks();
-        }));
-        document.querySelectorAll('.archive-toggle').forEach(btn => btn.addEventListener('click', () => {
-          // Expand or collapse subtasks
-          const subtasks = btn.closest('.task-card').querySelector('.archived-subtasks');
-          const open = !subtasks.classList.toggle('hidden'); btn.textContent = open ? '▼' : '▶';
-        }));
-        document.querySelectorAll('#archived-tasks .task-card').forEach(card => card.addEventListener('click', e => {
-          // Highlight associated RFC on archived card click
-          if (e.target.tagName === 'INPUT' || e.target.classList.contains('archive-toggle')) return;
-          highlightRfc(card.dataset.rfc);
-        }));
+      // Delegate clicks on pinned list: open or remove pin
+      document.getElementById('pinned-list').addEventListener('click', e => {
+        if (e.target.tagName === 'BUTTON' && e.target.dataset.name) {
+          fetchAndRender(e.target.dataset.name);
+          highlightRfc(e.target.dataset.name);
+        }
+        if (e.target.dataset.delPin) {
+          pinned = pinned.filter(r => r.name !== e.target.dataset.delPin);
+          savePinned();
+        }
+      });
+
+      /**
+       * Display active tasks or an onboarding placeholder if none exist.
+       */
+      function renderActiveTasks() {
+        const container = document.getElementById('active-tasks');
+        const prevScroll = container.scrollTop;
+        container.innerHTML = '';
+        if (activeTasks.length === 0) {
+          container.innerHTML = `
+            <div class="text-gray-600 italic p-4 bg-white rounded shadow">
+              <p class="mb-2">1. Select text in the editor to create a new task.</p>
+              <p class="mb-2">2. Click the “+” button to add it under Active Tasks.</p>
+              <p>3. Use the checkbox to mark tasks done and archive them.</p>
+            </div>
+          `;
+        } else {
+          activeTasks.forEach((t,i) => {
+            const card = document.createElement('div');
+            card.className = 'task-card';
+            card.dataset.rfc = t.rfc;
+            // Render main task and subtasks with checkboxes and delete buttons
+            card.innerHTML = `
+              <div class="flex justify-between items-center">
+                <h4 class="font-medium flex-1">
+                  <input type="checkbox" data-ti="${i}" class="mr-2" /> ${t.text}
+                </h4>
+                <button data-del-task="${i}" class="btn-delete">&times;</button>
+              </div>
+              ${t.subtasks.map((st,j) => `
+                <div class="subtask-item flex items-center justify-between">
+                  <div class="flex items-center">
+                    <input type="checkbox" data-sti="${i}-${j}" class="mr-2" />${st.text}
+                  </div>
+                  <button data-del-subtask="${i}-${j}" class="btn-delete">&times;</button>
+                </div>
+              `).join('')}
+              <button data-si="${i}" class="text-blue-600 btn-small mt-2">+ Subtask</button>
+            `;
+            container.appendChild(card);
+          });
+        }
+        container.scrollTop = prevScroll;
+        if (activeTasks.length > 0) bindTaskEvents();
       }
 
-      // Persist task lists to local storage and refresh UI markers
-      function saveTasks() { localStorage.setItem('activeTasks', JSON.stringify(activeTasks)); localStorage.setItem('archivedTasks', JSON.stringify(archivedTasks)); renderActiveTasks(); renderArchivedTasks(); highlightEditorTasks(); }
-      // Add a new task based on selected text range in editor
-      function addTask(text, range) { activeTasks.unshift({ text, done: false, subtasks: [], rfc: currentRfc, range }); saveTasks(); }
-      document.getElementById('toggle-archived').addEventListener('click', () => { document.getElementById('archived-tasks').classList.toggle('hidden'); });
+      /**
+       * Display archived tasks and update archive count.
+       */
+      function renderArchivedTasks() {
+        const container = document.getElementById('archived-tasks');
+        const prevScroll = container.scrollTop;
+        document.getElementById('archived-count').textContent = archivedTasks.length;
+        container.innerHTML = '';
+        archivedTasks.forEach((t,i) => {
+          const card = document.createElement('div');
+          card.className = 'task-card';
+          card.dataset.rfc = t.rfc;
+          card.innerHTML = `
+            <div class="flex items-center justify-between">
+              <div class="flex items-center">
+                <input type="checkbox" data-ai="${i}" class="mr-2" checked />
+                <span>${t.text}</span>
+              </div>
+              <button class="archive-toggle text-xs px-1 py-0.5 ml-2">▶</button>
+            </div>
+            <div class="archived-subtasks hidden ml-8 mt-2">
+              ${t.subtasks.map((st,j) => `
+                <div class="subtask-item flex items-center">`
+           + `<input type="checkbox" data-sti="${i}-${j}" class="mr-2" ${st.done ? 'checked' : ''} /> ${st.text}`
+           + `</div>`
+              ).join('')}
+            </div>
+          `;
+          container.appendChild(card);
+        });
+        bindArchiveEvents();
+        container.scrollTop = prevScroll;
+      }
 
-      /* ---------- RFC Highlighting and Editor Integration ---------- */
+      // Attach change and click handlers for active task interactions
+      function bindTaskEvents() {
+        document.querySelectorAll('#active-tasks input[data-ti]').forEach(cb => {
+          cb.addEventListener('change', e => {
+            const i = Number(e.target.dataset.ti);
+            const task = activeTasks.splice(i,1)[0];
+            archivedTasks.unshift(task);
+            saveTasks();
+          });
+        });
+        document.querySelectorAll('#active-tasks button[data-si]').forEach(btn => {
+          btn.addEventListener('click', e => {
+            const i = Number(e.target.dataset.si);
+            const text = prompt(`Add a subtask for "${activeTasks[i].text}"`);
+            if (text) {
+              activeTasks[i].subtasks.push({ text, done: false });
+              saveTasks();
+            }
+          });
+        });
+        document.querySelectorAll('#active-tasks .task-card').forEach(card => {
+          card.addEventListener('click', e => {
+            if (['INPUT','BUTTON'].includes(e.target.tagName)) return;
+            highlightRfc(card.dataset.rfc);
+          });
+        });
+      }
+
+      // Global click handlers for deleting tasks/subtasks
+      document.getElementById('active-tasks').addEventListener('click', e => {
+        if (e.target.dataset.delTask !== undefined) {
+          activeTasks.splice(Number(e.target.dataset.delTask),1);
+          saveTasks();
+        }
+        if (e.target.dataset.delSubtask) {
+          const [a,b] = e.target.dataset.delSubtask.split('-').map(Number);
+          activeTasks[a].subtasks.splice(b,1);
+          saveTasks();
+        }
+      });
+      document.getElementById('archived-tasks').addEventListener('click', e => {
+        if (e.target.dataset.delArchTask !== undefined) {
+          archivedTasks.splice(Number(e.target.dataset.delArchTask),1);
+          saveTasks();
+        }
+        if (e.target.dataset.delArchSubtask) {
+          const [a,b] = e.target.dataset.delArchSubtask.split('-').map(Number);
+          archivedTasks[a].subtasks.splice(b,1);
+          saveTasks();
+        }
+      });
+
+      // Toggle archived subtasks visibility and reactivation
+      function bindArchiveEvents() {
+        document.querySelectorAll('#archived-tasks input[data-ai]').forEach(cb => {
+          cb.addEventListener('change', e => {
+            const i = Number(e.target.dataset.ai);
+            const task = archivedTasks.splice(i,1)[0];
+            activeTasks.unshift(task);
+            saveTasks();
+          });
+        });
+        document.querySelectorAll('.archive-toggle').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const subtasksDiv = btn.closest('.task-card').querySelector('.archived-subtasks');
+            const open = !subtasksDiv.classList.toggle('hidden');
+            btn.textContent = open ? '▼' : '▶';
+          });
+        });
+        document.querySelectorAll('#archived-tasks .task-card').forEach(card => {
+          card.addEventListener('click', e => {
+            if (['INPUT','BUTTON'].includes(e.target.tagName)) return;
+            highlightRfc(card.dataset.rfc);
+          });
+        });
+      }
+
+      // Persist tasks to localStorage and rerender everything
+      function saveTasks() {
+        localStorage.setItem('activeTasks', JSON.stringify(activeTasks));
+        localStorage.setItem('archivedTasks', JSON.stringify(archivedTasks));
+        renderActiveTasks();
+        renderArchivedTasks();
+        highlightEditorTasks();
+      }
+
+      /**
+       * Add a new active task tied to current RFC and selected text range.
+       */
+      function addTask(text, range) {
+        activeTasks.unshift({ text, done: false, subtasks: [], rfc: currentRfc, range });
+        saveTasks();
+      }
+
+      // Toggle archived tasks pane visibility
+      document.getElementById('toggle-archived').addEventListener('click', () => {
+        document.getElementById('archived-tasks').classList.toggle('hidden');
+      });
+
+      // Highlight the corresponding RFC entry in the sidebar
       let lastHighlighted = null;
       function highlightRfc(name) {
-        const btn = document.querySelector(`#dashboard button[data-name="${name}"]`);
+        const btn = document.querySelector(`#dashboard button[data-name=\"${name}\"]`);
         if (!btn) return;
         const li = btn.closest('li');
-
         if (name === lastHighlighted) {
-          // Re-trigger pulse animation on the same item
-          li.classList.remove('pulse');
-          void li.offsetWidth;
-          li.classList.add('pulse');
+          li.classList.remove('pulse'); void li.offsetWidth; li.classList.add('pulse');
         } else {
-          // Clear previous highlights and mark new selection
-          document.querySelectorAll('#dashboard li').forEach(el => el.classList.remove('highlight', 'pulse'));
+          document.querySelectorAll('#dashboard li').forEach(el => el.classList.remove('highlight','pulse'));
           li.classList.add('highlight');
           lastHighlighted = name;
         }
       }
 
-      // Highlight task-associated lines within the ACE Editor
+      /**
+       * Render highlight markers in the Ace editor for any tasks tied to the current RFC.
+       */
       function highlightEditorTasks() {
-        // Remove existing markers
-        Object.values(editor.session.getMarkers(false)).forEach(m => { if (m.clazz === 'task-highlight') editor.session.removeMarker(m.id); });
-        // Add markers for active and archived task ranges
-        activeTasks.concat(archivedTasks).forEach(t => { if (t.rfc === currentRfc && t.range) {
+        // Remove existing task markers
+        Object.values(editor.session.getMarkers(false)).forEach(m => {
+          if (m.clazz === 'task-highlight') editor.session.removeMarker(m.id);
+        });
+        // Add markers for all tasks belonging to the current document
+        activeTasks.concat(archivedTasks).forEach(t => {
+          if (t.rfc === currentRfc && t.range) {
             const { startRow, startCol, endRow, endCol } = t.range;
-            editor.session.addMarker(new Range(startRow, startCol, endRow, endCol), 'task-highlight', 'text', false);
+            editor.session.addMarker(new Range(startRow,startCol,endRow,endCol), 'task-highlight', 'text', false);
           }
         });
       }
 
-      // Handle text selection to enable quick task creation button
+      // Show "+" button when text is selected in the editor
       editor.container.addEventListener('mouseup', () => {
         setTimeout(() => {
-          const sel = editor.getSelectedText(); let btn = document.getElementById('task-add-btn');
+          const sel = editor.getSelectedText();
+          let btn = document.getElementById('task-add-btn');
           if (sel) {
-            const range = editor.getSelectionRange(); const c = editor.renderer.textToScreenCoordinates(range.start.row, range.start.column);
-            if (!btn) { btn = document.createElement('button'); btn.id = 'task-add-btn'; btn.textContent = '+'; btn.className = 'absolute bg-blue-600 text-white rounded-full w-6 h-6'; document.body.appendChild(btn); }
-            btn.style.top = (c.pageY - 8) + 'px'; btn.style.left = (c.pageX - 8) + 'px';
-            btn.onclick = () => { addTask(sel, { startRow: range.start.row, startCol: range.start.column, endRow: range.end.row, endCol: range.end.column }); btn.remove(); editor.clearSelection(); };
-          } else if (btn) btn.remove();
+            const range = editor.getSelectionRange();
+            const c = editor.renderer.textToScreenCoordinates(range.start.row, range.start.column);
+            if (!btn) {
+              btn = document.createElement('button');
+              btn.id = 'task-add-btn';
+              btn.textContent = '+';
+              btn.className = 'absolute bg-blue-600 text-white rounded-full w-6 h-6';
+              document.body.appendChild(btn);
+            }
+            btn.style.top = (c.pageY - 8) + 'px';
+            btn.style.left = (c.pageX - 8) + 'px';
+            btn.onclick = () => { addTask(sel, range); btn.remove(); editor.clearSelection(); };
+          } else if (btn) {
+            btn.remove();
+          }
         }, 10);
       });
 
-      // Fetch RFC text via proxy, render header, and initialize tasks markers
+      /**
+       * Fetch and render an RFC document by name, update editor and tasks.
+       * @param {string} name - RFC identifier (e.g., "rfc822").
+       */
       function fetchAndRender(name) {
         currentRfc = name;
-        const num = (name.match(/\d+/) || [''])[0] || '';
-        // Construct the full endpoint for retrieving the raw RFC text by embedding the document number
-        const rfcUrl = `https://www.rfc-editor.org/rfc/rfc${num}.txt`;
-        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(rfcUrl)}`;
-        fetch(proxyUrl).then(r => r.ok ? r.text() : Promise.reject()).then(t => {
-          document.getElementById('header').innerHTML = `<h1 class="text-2xl font-bold text-gray-900 p-4">${name}</h1>`;
-          editor.session.setValue(t, -1); renderActiveTasks(); renderArchivedTasks(); highlightEditorTasks();
-        }).catch(() => { editor.session.setValue('Error loading.', -1); });
+        const rawUrl = constructDocUrl(name);
+        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(rawUrl)}`;
+        fetch(proxyUrl)
+          .then(r => r.ok ? r.text() : Promise.reject())
+          .then(t => {
+            document.getElementById('header').innerHTML = `<h1 class="text-2xl font-bold text-gray-900 p-4">${name}</h1>`;
+            editor.session.setValue(t, -1);
+            renderActiveTasks();
+            renderArchivedTasks();
+            highlightEditorTasks();
+          })
+          .catch(() => { editor.session.setValue('Error loading.', -1); });
       }
 
-      // Initial render calls on page load
-      renderPinned(); renderActiveTasks(); renderArchivedTasks();
+      // Initial rendering of pinned items and tasks on page load
+      renderPinned();
+      renderActiveTasks();
+      renderArchivedTasks();
     })();
   </script>
 </body>

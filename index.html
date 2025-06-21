@@ -85,8 +85,13 @@
   </section>
   <script>
     (function() {
-      const baseApi = 'https://datatracker.ietf.org/api/v1/doc/document/?format=json&doc_type=rfc&limit=50';
-        async function fetchAllPages(url) {
+        
+        // URL limitée aux RFC
+        const baseApi = 'https://datatracker.ietf.org/api/v1/doc/document/?format=json&doc_type=rfc&limit=50';
+        // URL pour tous les documents (RFC + drafts + autres), 50 par page
+        
+        const baseApiAll = baseApi.replace('&doc_type=rfc', '');
+      async function fetchAllPages(url) {
           // 1) fetch première page
           const firstRes = await fetch(url, { mode: 'cors' });
           if (!firstRes.ok) {
@@ -179,7 +184,7 @@
       }
       function parseDorks(q) {
         const tokens = q.match(/(?:[+-]?"[^"]*")|[+-]?\S+/g) || [];
-        const andTerms = [], orTerms = [], exclude = [], filters = {}, exact = [];
+        const andTerms = [], orTerms = [], includeTerms = [], exclude = [], filters = {}, exact = [];
         tokens.forEach(tok => {
           let sign = null, core = tok;
           if (tok[0] === '+' || tok[0] === '-') { sign = tok[0]; core = tok.slice(1); }
@@ -191,13 +196,17 @@
             const [field, val] = core.split(':');
             filters[field] = filters[field] || { include: [], exclude: [] };
             (sign === '-') ? filters[field].exclude.push(val) : filters[field].include.push(val);
-          } else if (sign === '-') {
-            exclude.push(core);
+             } else if (sign === '-') {
+              exclude.push(core);
+          } else if (sign === '+') {
+            // +prefix → terme d'inclusion (doit être dans titre OU métadonnées)
+            includeTerms.push(core);
           } else {
-            (sign === '+' ? orTerms : andTerms).push(core);
+            // terme sans préfixe → OR-term
+            orTerms.push(core);
           }
         });
-        return { andTerms, orTerms, exclude, filters, exact };
+        return { andTerms, orTerms, includeTerms, exclude, filters, exact };
       }
       const searchInput = document.getElementById('search');
       const tutorialDiv = document.getElementById('search-tutorial');
@@ -210,17 +219,31 @@ searchInput.addEventListener('input', async e => {
   }
   tutorialDiv.classList.add('hidden');
 
-  // Direct RFC lookup by number
-  const m = q.match(/^(?:rfc)?(\d+)$/);
-  if (m) {
-    const name = 'rfc' + m[1];
-    const url = `${baseApi}&name__iexact=${encodeURIComponent(name)}`;
-    const objs = await fetchAllPages(url);
-    renderList(objs);
-    return;
-  }
+   // Direct lookup by number : exact + contains (RFCs **et** drafts)
+   const m = q.match(/^(?:rfc\s*)?(\d+)$/);
+   if (m) {
+     const num = m[1];
+     // 1) la RFC officielle exacte
+     const urlRfcExact = `${baseApi}&name__iexact=rfc${num}`;
+     // 2) tous les documents (RFCs + drafts…) dont le nom contient ce numéro
+     const urlContains = `${baseApiAll}&name__icontains=${encodeURIComponent(num)}`;
+ 
+     // on récupère en parallèle
+     const [exactList, containsList] = await Promise.all([
+       fetchAllPages(urlRfcExact),
+       fetchAllPages(urlContains)
+     ]);
+ 
+     // on fusionne sans doublons (clé = r.name)
+     const merged = Array.from(
+       new Map([...exactList, ...containsList].map(r => [r.name, r])).values()
+     );
+     renderList(merged);
+     return;
+   }
 
-  const { andTerms, orTerms, exclude, filters, exact } = parseDorks(q);
+
+  const { andTerms, orTerms, includeTerms, exclude, filters, exact } = parseDorks(q);
 
   // --- Improved AND-logic: fetch once, then local-filter for remaining terms ---
   if (andTerms.length) {
@@ -237,8 +260,8 @@ searchInput.addEventListener('input', async e => {
     }
     
      // 2.5) Inclusion-filter for +terms: keep RFCs where each +term appears in the title OR in metadata
-     if (orTerms.length) {
-       for (const term of orTerms) {
+     if (includeTerms.length) {
+       for (const term of includeTerms) {
          results = results.filter(r => {
            // build a searchable string from title + metadata fields
            const metaString = [
@@ -256,7 +279,7 @@ searchInput.addEventListener('input', async e => {
        }
      }
     
-   if (results.length === 0 && andTerms.length > 1) {
+   if (results.length === 0 && andTerms.length > 1 && orTerms.length === 0) {
      const phrase = andTerms.join(' ');
      results = await fetchAllPages(
        `${baseApi}&title__icontains=${encodeURIComponent(phrase)}`
@@ -299,8 +322,18 @@ searchInput.addEventListener('input', async e => {
   // ---------------------------------------------------------------
 
   // OR-term + exact + other filters (unchanged logic)
-  const fetchFor = term =>
-    fetchAllPages(`${baseApi}&title__icontains=${encodeURIComponent(term)}`);
+const fetchFor = term =>
+  Promise.all([
+    fetchAllPages(`${baseApiAll}&title__icontains=${encodeURIComponent(term)}`),
+    fetchAllPages(`${baseApiAll}&name__icontains=${encodeURIComponent(term)}`)
+  ]).then(([byTitle, byName]) =>
+    Array.from(
+      new Map(
+        [...byTitle, ...byName].map(r => [r.name, r])
+      ).values()
+    )
+  );
+  
   const fetchPromises = orTerms.map(fetchFor);
   try {
     const arrays = await Promise.all(fetchPromises);
@@ -335,7 +368,22 @@ searchInput.addEventListener('input', async e => {
       }
     });
 
-    renderList(merged);
+   // ➤ inclusion-filter pour +terms
+   if (includeTerms.length) {
+     merged = merged.filter(r => {
+       const metaString = [
+         r.name,
+         r.title,
+         ...(r.authors?.map(a => a.name) || []),
+         r.status,
+         r.stream
+       ].join(' ').toLowerCase();
+       return includeTerms.every(term =>
+         r.title.toLowerCase().includes(term) || metaString.includes(term)
+       );
+     });
+   }
+   renderList(merged);
   } catch {
     renderList([]);
   }

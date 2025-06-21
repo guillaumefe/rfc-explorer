@@ -108,39 +108,55 @@
 
       /* ---------- RFC List Rendering and Interaction ---------- */
       // Render pinned RFCs in the sidebar
-      function renderPinned() {
-        const ul = document.getElementById('pinned-list'); ul.innerHTML = '';
-        pinned.forEach(r => {
-          const li = document.createElement('li'); li.className = 'flex justify-between items-center';
-            li.innerHTML = `
-              <span class="font-medium text-gray-700">${r.name}</span>
-              <div class="flex items-center space-x-1">
-                <button data-name="${r.name}" class="bg-green-600 text-white btn-small">Open</button>
-                <button data-del-pin="${r.name}" class="btn-delete">&times;</button>
-              </div>
-            `;
-          ul.appendChild(li);
-        });
-      }
+    function renderPinned() {
+      const ul = document.getElementById('pinned-list');
+      // Sauvegarde de la position de scroll actuelle
+      const prevScroll = ul.scrollTop;
+      // Vidage et reconstruction
+      ul.innerHTML = '';
+      pinned.forEach(r => {
+        const li = document.createElement('li');
+        li.className = 'flex justify-between items-center';
+        li.innerHTML = `
+          <span class="font-medium text-gray-700">${r.name}</span>
+          <div class="flex items-center space-x-1">
+            <button data-name="${r.name}" class="bg-green-600 text-white btn-small">Open</button>
+            <button data-del-pin="${r.name}" class="btn-delete">&times;</button>
+          </div>
+        `;
+        ul.appendChild(li);
+      });
+      // Restauration de la position de scroll
+      ul.scrollTop = prevScroll;
+    }
+
       // Persist pinned RFCs to local storage and re-render
       function savePinned() { localStorage.setItem('pinned', JSON.stringify(pinned)); renderPinned(); }
 
       // Render search results in the main list
-      function renderList(items) {
-        rfcs = items;
-        const ul = document.getElementById('rfc-list'); ul.innerHTML = '';
-        items.forEach(r => {
-          const li = document.createElement('li'); li.className = 'flex justify-between items-center';
-            li.innerHTML = `
-              <span class="text-gray-800">${r.name} - ${r.title}</span>
-              <div class="flex items-center space-x-1">
-                <button data-name="${r.name}" class="bg-blue-600 text-white btn-small">Download</button>
-                <button data-del-rfc="${r.name}" class="btn-delete">&times;</button>
-              </div>
-            `;
-          ul.appendChild(li);
-        });
-      }
+    function renderList(items) {
+      rfcs = items;
+      const ul = document.getElementById('rfc-list');
+      // Sauvegarde de la position de scroll actuelle
+      const prevScroll = ul.scrollTop;
+      // Vidage et reconstruction
+      ul.innerHTML = '';
+      items.forEach(r => {
+        const li = document.createElement('li');
+        li.className = 'flex justify-between items-center';
+        li.innerHTML = `
+          <span class="text-gray-800">${r.name} - ${r.title}</span>
+          <div class="flex items-center space-x-1">
+            <button data-name="${r.name}" class="bg-blue-600 text-white btn-small">Download</button>
+            <button data-del-rfc="${r.name}" class="btn-delete">&times;</button>
+          </div>
+        `;
+        ul.appendChild(li);
+      });
+      // Restauration de la position de scroll
+      ul.scrollTop = prevScroll;
+    }
+
 
       /**
        * Parses a dork-style search query into AND-terms, OR-terms, exclude-terms, field filters, and exact phrases.
@@ -298,23 +314,24 @@
 
       /* ---------- Task Management Functions ---------- */
       // Render active tasks with subtasks and bind events
-      function renderActiveTasks() {
-        const c = document.getElementById('active-tasks');
-        c.innerHTML = '';
-      
-        // If no active tasks, show a brief tutorial
-        if (activeTasks.length === 0) {
-          c.innerHTML = `
-            <div class="text-gray-600 italic p-4 bg-white rounded shadow">
-              <p class="mb-2">1. Select text in the editor to create a new task.</p>
-              <p class="mb-2">2. Click the “+” button to add it under Active Tasks.</p>
-              <p>3. Use the checkbox to mark tasks done and archive them.</p>
-            </div>
-          `;
-          return;
-        }
-      
-        // Otherwise, render each active task as before
+    function renderActiveTasks() {
+      const c = document.getElementById('active-tasks');
+      // 1) Sauvegarde de la position de scroll
+      const prevScroll = c.scrollTop;
+    
+      // 2) Vidage du container
+      c.innerHTML = '';
+    
+      // 3) Rendu du contenu
+      if (activeTasks.length === 0) {
+        c.innerHTML = `
+          <div class="text-gray-600 italic p-4 bg-white rounded shadow">
+            <p class="mb-2">1. Select text in the editor to create a new task.</p>
+            <p class="mb-2">2. Click the “+” button to add it under Active Tasks.</p>
+            <p>3. Use the checkbox to mark tasks done and archive them.</p>
+          </div>
+        `;
+      } else {
         activeTasks.forEach((t, i) => {
           const subs = t.subtasks || [];
           const div = document.createElement('div');
@@ -339,41 +356,59 @@
           `;
           c.appendChild(div);
         });
-      
-        bindTaskEvents();
       }
+    
+      // 4) Restauration de la position de scroll
+      c.scrollTop = prevScroll;
+    
+      // 5) Liaisons des événements (uniquement si des tâches existent)
+      if (activeTasks.length > 0) bindTaskEvents();
+    }
+
 
       // Render archived tasks and bind archive-related events
-      function renderArchivedTasks() {
-        const container = document.getElementById('archived-tasks');
-        document.getElementById('archived-count').textContent = archivedTasks.length;
-        container.innerHTML = '';
-        archivedTasks.forEach((t, i) => {
-          const subs = t.subtasks || [];
-          const div = document.createElement('div');
-          div.className = 'task-card';
-          div.dataset.rfc = t.rfc;
-          div.innerHTML = `
-            <div class="flex items-center justify-between">
-              <div class="flex items-center">
-                <input type="checkbox" data-ai="${i}" class="mr-2" checked/>
-                <span>${t.text}</span>
-              </div>
-              <button class="archive-toggle text-xs px-1 py-0.5 ml-2">▶</button>
+    function renderArchivedTasks() {
+      const container = document.getElementById('archived-tasks');
+      // 1) Sauvegarde de la position de scroll actuelle
+      const prevScroll = container.scrollTop;
+    
+      // 2) Mise à jour du compteur
+      document.getElementById('archived-count').textContent = archivedTasks.length;
+    
+      // 3) Vidage et reconstruction
+      container.innerHTML = '';
+      archivedTasks.forEach((t, i) => {
+        const subs = t.subtasks || [];
+        const div = document.createElement('div');
+        div.className = 'task-card';
+        div.dataset.rfc = t.rfc;
+        div.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div class="flex items-center">
+              <input type="checkbox" data-ai="${i}" class="mr-2" checked/>
+              <span>${t.text}</span>
             </div>
-            <div class="archived-subtasks hidden ml-8 mt-2">
-              ${subs.map((st, j) =>
-                `<div class="subtask-item flex items-center">
-                   <input type="checkbox" data-sti="${i}-${j}" class="mr-2"${st.done ? ' checked' : ''}/>
-                   ${st.text}
-                 </div>`
-              ).join('')}
-            </div>
-          `;
-          container.appendChild(div);
-        });
-        bindArchiveEvents();
-      }
+            <button class="archive-toggle text-xs px-1 py-0.5 ml-2">▶</button>
+          </div>
+          <div class="archived-subtasks hidden ml-8 mt-2">
+            ${subs.map((st, j) =>
+              `<div class="subtask-item flex items-center">
+                 <input type="checkbox" data-sti="${i}-${j}" class="mr-2"${st.done ? ' checked' : ''}/>
+                 ${st.text}
+               </div>`
+            ).join('')}
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    
+      // 4) Liaisons des événements
+      bindArchiveEvents();
+    
+      // 5) Restauration de la position de scroll
+      container.scrollTop = prevScroll;
+    }
+
 
       // Bind change and click events for active tasks
       function bindTaskEvents() {
@@ -480,9 +515,6 @@
           li.classList.add('highlight');
           lastHighlighted = name;
         }
-
-        // Ensure highlighted item is visible in the viewport
-        li.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
 
       // Highlight task-associated lines within the ACE Editor
